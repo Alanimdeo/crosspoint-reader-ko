@@ -54,8 +54,8 @@ constexpr char FONT_DIR[] = "/.crosspoint/fonts";
 
 // Helper function to safely load an SD font with comprehensive error handling
 // Returns true if loading succeeded
-bool trySdFontLoad(GfxRenderer& renderer, int fontId, const char* name,
-                   const char* regularPath, const char* boldPath = nullptr) {
+bool trySdFontLoad(GfxRenderer& renderer, int fontId, const char* name, const char* regularPath,
+                   const char* boldPath = nullptr) {
   // First check if the file exists before attempting to create SdFontFamily
   if (!SdMan.exists(regularPath)) {
     Serial.printf("[%lu] [FNT] %s not found: %s\n", millis(), name, regularPath);

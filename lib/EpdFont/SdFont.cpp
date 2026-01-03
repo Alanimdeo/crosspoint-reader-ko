@@ -194,7 +194,8 @@ bool SdFontData::load() {
   // Check available heap before attempting to load
   size_t freeHeap = ESP.getFreeHeap();
   if (freeHeap < MIN_FREE_HEAP_AFTER_LOAD) {
-    Serial.printf("[%lu] [SdFont] Insufficient heap: %u bytes (need %u)\n", millis(), freeHeap, MIN_FREE_HEAP_AFTER_LOAD);
+    Serial.printf("[%lu] [SdFont] Insufficient heap: %u bytes (need %u)\n", millis(), freeHeap,
+                  MIN_FREE_HEAP_AFTER_LOAD);
     return false;
   }
 
@@ -227,7 +228,8 @@ bool SdFontData::load() {
 
   // Validate header values to prevent memory issues
   if (header.intervalCount > MAX_INTERVAL_COUNT) {
-    Serial.printf("[%lu] [SdFont] Too many intervals: %u (max %u)\n", millis(), header.intervalCount, MAX_INTERVAL_COUNT);
+    Serial.printf("[%lu] [SdFont] Too many intervals: %u (max %u)\n", millis(), header.intervalCount,
+                  MAX_INTERVAL_COUNT);
     fontFile.close();
     return false;
   }
@@ -243,8 +245,8 @@ bool SdFontData::load() {
   size_t intervalsMemory = header.intervalCount * sizeof(EpdFontInterval);
 
   if (intervalsMemory > freeHeap - MIN_FREE_HEAP_AFTER_LOAD) {
-    Serial.printf("[%lu] [SdFont] Not enough memory for intervals: need %u, have %u\n",
-                  millis(), intervalsMemory, freeHeap);
+    Serial.printf("[%lu] [SdFont] Not enough memory for intervals: need %u, have %u\n", millis(), intervalsMemory,
+                  freeHeap);
     fontFile.close();
     return false;
   }

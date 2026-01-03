@@ -165,11 +165,9 @@ bool SdFontFamily::is2Bit(EpdFontStyle style) const {
 // UnifiedFontFamily Implementation
 // ============================================================================
 
-UnifiedFontFamily::UnifiedFontFamily(const EpdFontFamily* font)
-    : type(Type::FLASH), flashFont(font), sdFont(nullptr) {}
+UnifiedFontFamily::UnifiedFontFamily(const EpdFontFamily* font) : type(Type::FLASH), flashFont(font), sdFont(nullptr) {}
 
-UnifiedFontFamily::UnifiedFontFamily(SdFontFamily* font)
-    : type(Type::SD), flashFont(nullptr), sdFont(font) {}
+UnifiedFontFamily::UnifiedFontFamily(SdFontFamily* font) : type(Type::SD), flashFont(nullptr), sdFont(font) {}
 
 UnifiedFontFamily::~UnifiedFontFamily() {
   // flashFont is not owned (points to global), don't delete

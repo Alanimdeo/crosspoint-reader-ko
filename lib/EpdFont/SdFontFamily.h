@@ -19,8 +19,7 @@ class SdFontFamily {
 
  public:
   // Constructor with raw pointers (does not take ownership)
-  explicit SdFontFamily(SdFont* regular, SdFont* bold = nullptr, SdFont* italic = nullptr,
-                        SdFont* boldItalic = nullptr)
+  explicit SdFontFamily(SdFont* regular, SdFont* bold = nullptr, SdFont* italic = nullptr, SdFont* boldItalic = nullptr)
       : regular(regular), bold(bold), italic(italic), boldItalic(boldItalic), ownsPointers(false) {}
 
   // Constructor with file paths (creates and owns SdFont objects)

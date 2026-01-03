@@ -1,10 +1,11 @@
 #pragma once
 
 #include <SdFat.h>
+
 #include <cstdint>
+#include <list>
 #include <string>
 #include <unordered_map>
-#include <list>
 
 #include "EpdFontData.h"
 #include "SdFontFormat.h"
