@@ -1,7 +1,11 @@
 #include "SettingsActivity.h"
 
 #include <GfxRenderer.h>
+#include <HardwareSerial.h>
 
+#include <cstring>
+
+#include "CalibreSettingsActivity.h"
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "OtaUpdateActivity.h"
@@ -9,55 +13,29 @@
 
 // Define the static settings list
 namespace {
-constexpr int settingsCount = 12;
+constexpr int settingsCount = 16;
 const SettingInfo settingsList[settingsCount] = {
     // Should match with SLEEP_SCREEN_MODE
-    // {"Sleep Screen", SettingType::ENUM, &CrossPointSettings::sleepScreen, {"Dark", "Light", "Custom", "Cover"}},
-    {"절전 화면 이미지",
-     SettingType::ENUM,
-     &CrossPointSettings::sleepScreen,
-     {"다크", "라이트", "사용자 정의", "커버"}},
-    // {"Status Bar", SettingType::ENUM, &CrossPointSettings::statusBar, {"None", "No Progress", "Full"}},
-    {"상태 표시줄", SettingType::ENUM, &CrossPointSettings::statusBar, {"없음", "진행 없음", "전체"}},
-    // {"Extra Paragraph Spacing", SettingType::TOGGLE, &CrossPointSettings::extraParagraphSpacing, {}},
-    {"문단 간격 추가", SettingType::TOGGLE, &CrossPointSettings::extraParagraphSpacing, {}},
-    // {"Short Power Button Click", SettingType::TOGGLE, &CrossPointSettings::shortPwrBtn, {}},
-    {"전원 버튼 짧게 눌러 끄기", SettingType::TOGGLE, &CrossPointSettings::shortPwrBtn, {}},
-    // {"Reading Orientation",
-    //  SettingType::ENUM,
-    //  &CrossPointSettings::orientation,
-    //  {"Portrait", "Landscape CW", "Inverted", "Landscape CCW"}},
-    {"읽기 방향",
-     SettingType::ENUM,
-     &CrossPointSettings::orientation,
-     {"세로", "가로 시계방향", "반전", "가로 반시계방향"}},
-    // {"Front Button Layout",
-    //  SettingType::ENUM,
-    //  &CrossPointSettings::frontButtonLayout,
-    //  {"Bck, Cnfrm, Lft, Rght", "Lft, Rght, Bck, Cnfrm", "Lft, Bck, Cnfrm, Rght"}},
-    {"앞면 버튼 레이아웃",
-     SettingType::ENUM,
-     &CrossPointSettings::frontButtonLayout,
-     {"뒤로, 확인, 왼쪽, 오른쪽", "왼쪽, 오른쪽, 뒤로, 확인", "왼쪽, 뒤로, 확인, 오른쪽"}},
-    // {"Side Button Layout (reader)",
-    //  SettingType::ENUM,
-    //  &CrossPointSettings::sideButtonLayout,
-    //  {"Prev, Next", "Next, Prev"}},
-    {"측면 버튼 레이아웃 (리더기)",
-     SettingType::ENUM,
-     &CrossPointSettings::sideButtonLayout,
-     {"이전, 다음", "다음, 이전"}},
-    {"줄 간격", SettingType::ENUM, &CrossPointSettings::lineSpacing, {"좁게", "보통", "넓게"}},
-    {"문단 정렬",
-     SettingType::ENUM,
-     &CrossPointSettings::paragraphAlignment,
-     {"양쪽 정렬", "왼쪽", "가운데", "오른쪽"}},
-    {"절전 시간", SettingType::ENUM, &CrossPointSettings::sleepTimeout, {"1분", "5분", "10분", "15분", "30분"}},
-    {"새로고침 주기",
-     SettingType::ENUM,
-     &CrossPointSettings::refreshFrequency,
-     {"1 페이지", "5 페이지", "10 페이지", "15 페이지", "30 페이지"}},
-    {"업데이트 확인", SettingType::ACTION, nullptr, {}},
+    SettingInfo::Enum("절전 화면 이미지", &CrossPointSettings::sleepScreen,
+                      {"다크", "라이트", "사용자 정의", "커버", "없음"}),
+    SettingInfo::Enum("절전 화면 커버 모드", &CrossPointSettings::sleepScreenCoverMode, {"맞춤", "자르기"}),
+    SettingInfo::Enum("상태 표시줄", &CrossPointSettings::statusBar, {"없음", "진행 없음", "전체"}),
+    SettingInfo::Toggle("문단 간격 추가", &CrossPointSettings::extraParagraphSpacing),
+    SettingInfo::Toggle("텍스트 안티앨리어싱", &CrossPointSettings::textAntiAliasing),
+    SettingInfo::Toggle("전원 버튼 짧게 눌러 끄기", &CrossPointSettings::shortPwrBtn),
+    SettingInfo::Enum("읽기 방향", &CrossPointSettings::orientation,
+                      {"세로", "가로 시계방향", "반전", "가로 반시계방향"}),
+    SettingInfo::Enum("앞면 버튼 레이아웃", &CrossPointSettings::frontButtonLayout,
+                      {"뒤로, 확인, 왼쪽, 오른쪽", "왼쪽, 오른쪽, 뒤로, 확인", "왼쪽, 뒤로, 확인, 오른쪽"}),
+    SettingInfo::Enum("측면 버튼 레이아웃 (리더기)", &CrossPointSettings::sideButtonLayout, {"이전, 다음", "다음, 이전"}),
+    SettingInfo::Enum("줄 간격", &CrossPointSettings::lineSpacing, {"좁게", "보통", "넓게"}),
+    SettingInfo::Value("화면 여백", &CrossPointSettings::screenMargin, {5, 40, 5}),
+    SettingInfo::Enum("문단 정렬", &CrossPointSettings::paragraphAlignment, {"양쪽 정렬", "왼쪽", "가운데", "오른쪽"}),
+    SettingInfo::Enum("절전 시간", &CrossPointSettings::sleepTimeout, {"1분", "5분", "10분", "15분", "30분"}),
+    SettingInfo::Enum("새로고침 주기", &CrossPointSettings::refreshFrequency,
+                      {"1 페이지", "5 페이지", "10 페이지", "15 페이지", "30 페이지"}),
+    SettingInfo::Action("Calibre 설정"),
+    SettingInfo::Action("업데이트 확인"),
 };
 }  // namespace
 
@@ -68,7 +46,6 @@ void SettingsActivity::taskTrampoline(void* param) {
 
 void SettingsActivity::onEnter() {
   Activity::onEnter();
-
   renderingMutex = xSemaphoreCreateMutex();
 
   // Reset selection to first item
@@ -78,7 +55,7 @@ void SettingsActivity::onEnter() {
   updateRequired = true;
 
   xTaskCreate(&SettingsActivity::taskTrampoline, "SettingsActivityTask",
-              2048,               // Stack size
+              4096,               // Stack size
               this,               // Parameters
               1,                  // Priority
               &displayTaskHandle  // Task handle
@@ -125,11 +102,9 @@ void SettingsActivity::loop() {
     updateRequired = true;
   } else if (mappedInput.wasPressed(MappedInputManager::Button::Down) ||
              mappedInput.wasPressed(MappedInputManager::Button::Right)) {
-    // Move selection down
-    if (selectedSettingIndex < settingsCount - 1) {
-      selectedSettingIndex++;
-      updateRequired = true;
-    }
+    // Move selection down (with wrap around)
+    selectedSettingIndex = (selectedSettingIndex < settingsCount - 1) ? (selectedSettingIndex + 1) : 0;
+    updateRequired = true;
   }
 }
 
@@ -148,8 +123,25 @@ void SettingsActivity::toggleCurrentSetting() {
   } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
     const uint8_t currentValue = SETTINGS.*(setting.valuePtr);
     SETTINGS.*(setting.valuePtr) = (currentValue + 1) % static_cast<uint8_t>(setting.enumValues.size());
+  } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
+    // Decreasing would also be nice for large ranges I think but oh well can't have everything
+    const int8_t currentValue = SETTINGS.*(setting.valuePtr);
+    // Wrap to minValue if exceeding setting value boundary
+    if (currentValue + setting.valueRange.step > setting.valueRange.max) {
+      SETTINGS.*(setting.valuePtr) = setting.valueRange.min;
+    } else {
+      SETTINGS.*(setting.valuePtr) = currentValue + setting.valueRange.step;
+    }
   } else if (setting.type == SettingType::ACTION) {
-    if (std::string(setting.name) == "업데이트 확인") {
+    if (strcmp(setting.name, "Calibre 설정") == 0) {
+      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      exitActivity();
+      enterNewActivity(new CalibreSettingsActivity(renderer, mappedInput, [this] {
+        exitActivity();
+        updateRequired = true;
+      }));
+      xSemaphoreGive(renderingMutex);
+    } else if (strcmp(setting.name, "업데이트 확인") == 0) {
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
       exitActivity();
       enterNewActivity(new OtaUpdateActivity(renderer, mappedInput, [this] {
@@ -207,6 +199,8 @@ void SettingsActivity::render() const {
     } else if (settingsList[i].type == SettingType::ENUM && settingsList[i].valuePtr != nullptr) {
       const uint8_t value = SETTINGS.*(settingsList[i].valuePtr);
       valueText = settingsList[i].enumValues[value];
+    } else if (settingsList[i].type == SettingType::VALUE && settingsList[i].valuePtr != nullptr) {
+      valueText = std::to_string(SETTINGS.*(settingsList[i].valuePtr));
     }
     const auto width = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str());
     renderer.drawText(UI_10_FONT_ID, pageWidth - 20 - width, settingY, valueText.c_str(), i != selectedSettingIndex);
