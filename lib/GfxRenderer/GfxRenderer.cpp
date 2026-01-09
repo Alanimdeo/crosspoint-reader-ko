@@ -298,7 +298,7 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
     isScaled = true;
   }
 
-  // For 1-bit BMP, output is still 2-bit packed (for consistency with readRow)
+  // For 1-bit BMP, output is still 2-bit packed (for consistency with readNextRow)
   const int outputRowSize = (bitmap.getWidth() + 3) / 4;
   auto* outputRow = static_cast<uint8_t*>(malloc(outputRowSize));
   auto* rowBytes = static_cast<uint8_t*>(malloc(bitmap.getRowBytes()));
@@ -320,7 +320,7 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
       continue;
     }
 
-    if (bitmap.readRow(outputRow, rowBytes, bmpY) != BmpReaderError::Ok) {
+    if (bitmap.readNextRow(outputRow, rowBytes) != BmpReaderError::Ok) {
       Serial.printf("[%lu] [GFX] Failed to read row %d from 1-bit bitmap\n", millis(), bmpY);
       free(outputRow);
       free(rowBytes);
@@ -336,7 +336,7 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
         continue;
       }
 
-      // Get 2-bit value (result of readRow quantization)
+      // Get 2-bit value (result of readNextRow quantization)
       const uint8_t val = outputRow[bmpX / 4] >> (6 - ((bmpX * 2) % 8)) & 0x3;
 
       // For 1-bit source: 0 or 1 -> map to black (0,1,2) or white (3)
