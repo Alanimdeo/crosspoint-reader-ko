@@ -8,31 +8,31 @@ name: CI
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v6
-      with:
-        submodules: recursive
-    - uses: actions/setup-python@v6
-      with:
-        python-version: '3.14'
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
-    - name: Install PlatformIO Core
-      run: pip install --upgrade platformio
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
 
-    - name: Install clang-format-21
-      run: |
-        wget https://apt.llvm.org/llvm.sh
-        chmod +x llvm.sh
-        sudo ./llvm.sh 21
-        sudo apt-get update
-        sudo apt-get install -y clang-format-21
+      - name: Install PlatformIO Core
+        run: pip install --upgrade platformio
 
-    - name: Run cppcheck
-      run: pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
+      - name: Install clang-format-21
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
+          sudo apt-get update
+          sudo apt-get install -y clang-format-21
 
-    - name: Run clang-format
-      run: PATH="/usr/lib/llvm-21/bin:$PATH" ./bin/clang-format-fix && git diff --exit-code || (echo "Please run 'bin/clang-format-fix' to fix formatting issues" && exit 1)
+      - name: Run cppcheck
+        run: pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
 
-    - name: Build CrossPoint
-      run: pio run
+      - name: Run clang-format
+        run: PATH="/usr/lib/llvm-21/bin:$PATH" ./bin/clang-format-fix && git diff --exit-code || (echo "Please run 'bin/clang-format-fix' to fix formatting issues" && exit 1)
+
+      - name: Build CrossPoint
+        run: pio run

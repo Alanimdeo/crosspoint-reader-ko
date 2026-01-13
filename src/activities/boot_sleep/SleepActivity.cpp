@@ -88,7 +88,7 @@ void SleepActivity::renderCustomSleepScreen() const {
       if (SdMan.openFileForRead("SLP", filename, file)) {
         Serial.printf("[%lu] [SLP] Randomly loading: /sleep/%s\n", millis(), files[randomFileIndex].c_str());
         delay(100);
-        Bitmap bitmap(file);
+        Bitmap bitmap(file, true);
         if (bitmap.parseHeaders() == BmpReaderError::Ok) {
           renderBitmapSleepScreen(bitmap);
           dir.close();
@@ -103,7 +103,7 @@ void SleepActivity::renderCustomSleepScreen() const {
   // render a custom sleep screen instead of the default.
   FsFile file;
   if (SdMan.openFileForRead("SLP", "/sleep.bmp", file)) {
-    Bitmap bitmap(file);
+    Bitmap bitmap(file, true);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
       Serial.printf("[%lu] [SLP] Loading: /sleep.bmp\n", millis());
       renderBitmapSleepScreen(bitmap);
@@ -202,6 +202,7 @@ void SleepActivity::renderCoverSleepScreen() const {
   }
 
   std::string coverBmpPath;
+  bool cropped = SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP;
 
   // Check if the current book is XTC, TXT, or EPUB
   if (StringUtils::checkFileExtension(APP_STATE.openEpubPath, ".xtc") ||
@@ -241,12 +242,12 @@ void SleepActivity::renderCoverSleepScreen() const {
       return renderDefaultSleepScreen();
     }
 
-    if (!lastEpub.generateCoverBmp()) {
+    if (!lastEpub.generateCoverBmp(cropped)) {
       Serial.println("[SLP] Failed to generate cover bmp");
       return renderDefaultSleepScreen();
     }
 
-    coverBmpPath = lastEpub.getCoverBmpPath();
+    coverBmpPath = lastEpub.getCoverBmpPath(cropped);
   } else {
     return renderDefaultSleepScreen();
   }
