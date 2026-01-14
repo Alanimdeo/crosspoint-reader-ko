@@ -17,6 +17,10 @@ class HomeActivity final : public Activity {
   bool coverRendered = false;      // Track if cover has been rendered once
   bool coverBufferStored = false;  // Track if cover buffer is stored
   bool hasOpdsUrl = false;
+  bool hasCoverImage = false;
+  bool coverRendered = false;      // Track if cover has been rendered once
+  bool coverBufferStored = false;  // Track if cover buffer is stored
+  uint8_t* coverBuffer = nullptr;  // HomeActivity's own buffer for cover image
   std::string lastBookTitle;
   std::string lastBookAuthor;
   std::string coverBmpPath;
@@ -30,6 +34,9 @@ class HomeActivity final : public Activity {
   [[noreturn]] void displayTaskLoop();
   void render();
   int getMenuItemCount() const;
+  bool storeCoverBuffer();    // Store frame buffer for cover image
+  bool restoreCoverBuffer();  // Restore frame buffer from stored cover
+  void freeCoverBuffer();     // Free the stored cover buffer
 
  public:
   explicit HomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,

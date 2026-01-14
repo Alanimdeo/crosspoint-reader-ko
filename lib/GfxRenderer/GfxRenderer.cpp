@@ -194,7 +194,7 @@ void GfxRenderer::drawImage(const uint8_t bitmap[], const int x, const int y, co
 void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, const int maxWidth, const int maxHeight,
                              const float cropX, const float cropY) const {
   // For 1-bit bitmaps, use optimized 1-bit rendering path (no crop support for 1-bit)
-  if (bitmap.is1Bit() && cropX == 0 && cropY == 0) {
+  if (bitmap.is1Bit() && cropX == 0.0f && cropY == 0.0f) {
     drawBitmap1Bit(bitmap, x, y, maxWidth, maxHeight);
     return;
   }
@@ -311,20 +311,22 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
   }
 
   for (int bmpY = 0; bmpY < bitmap.getHeight(); bmpY++) {
-    const int bmpYOffset = bitmap.isTopDown() ? bmpY : bitmap.getHeight() - 1 - bmpY;
-    int screenY = y + (isScaled ? static_cast<int>(std::floor(bmpYOffset * scale)) : bmpYOffset);
-    if (screenY >= getScreenHeight()) {
-      break;
-    }
-    if (screenY < 0) {
-      continue;
-    }
-
+    // Read rows sequentially using readNextRow
     if (bitmap.readNextRow(outputRow, rowBytes) != BmpReaderError::Ok) {
       Serial.printf("[%lu] [GFX] Failed to read row %d from 1-bit bitmap\n", millis(), bmpY);
       free(outputRow);
       free(rowBytes);
       return;
+    }
+
+    // Calculate screen Y based on whether BMP is top-down or bottom-up
+    const int bmpYOffset = bitmap.isTopDown() ? bmpY : bitmap.getHeight() - 1 - bmpY;
+    int screenY = y + (isScaled ? static_cast<int>(std::floor(bmpYOffset * scale)) : bmpYOffset);
+    if (screenY >= getScreenHeight()) {
+      continue;  // Continue reading to keep row counter in sync
+    }
+    if (screenY < 0) {
+      continue;
     }
 
     for (int bmpX = 0; bmpX < bitmap.getWidth(); bmpX++) {

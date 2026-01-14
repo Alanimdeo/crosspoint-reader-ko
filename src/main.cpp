@@ -218,6 +218,8 @@ void setupDisplayAndFonts() {
 
   // UI font (Pretendard 10pt)
   renderer.insertFont(UI_FONT_ID, &uiFontFamily);
+  renderer.insertFont(UI_10_FONT_ID, &uiFontFamily);
+  renderer.insertFont(UI_12_FONT_ID, &uiFontFamily);
   renderer.insertFont(SMALL_FONT_ID, &uiFontFamily);
 
   // Korean EPUB reader font (Eulyoo 14pt)
@@ -278,6 +280,7 @@ void setup() {
     // Clear app state to avoid getting into a boot loop if the epub doesn't load
     const auto path = APP_STATE.openEpubPath;
     APP_STATE.openEpubPath = "";
+    APP_STATE.lastSleepImage = 0;
     APP_STATE.saveToFile();
     onGoToReader(path);
   }
