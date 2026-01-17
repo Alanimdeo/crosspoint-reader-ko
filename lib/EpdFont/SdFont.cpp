@@ -132,9 +132,9 @@ SdFontData::SdFontData(const char* path) : filePath(path), loaded(false), interv
   memset(&header, 0, sizeof(header));
 
   // Initialize shared cache on first SdFontData creation
-  // Use smaller cache (16KB) to conserve memory on ESP32
+  // Use larger cache (64KB) to improve performance with Korean fonts
   if (sharedCache == nullptr) {
-    sharedCache = new GlyphBitmapCache(16384);  // 16KB cache
+    sharedCache = new GlyphBitmapCache(65536);  // 64KB cache
   }
   cacheRefCount++;
 }
@@ -181,9 +181,11 @@ SdFontData& SdFontData::operator=(SdFontData&& other) noexcept {
   return *this;
 }
 
-// Maximum reasonable values for validation (Korean fonts have ~11K glyphs and ~3400 intervals)
-static constexpr uint32_t MAX_INTERVAL_COUNT = 5000;
-static constexpr uint32_t MAX_GLYPH_COUNT = 50000;
+// Maximum reasonable values for validation
+// CJK fonts (Korean + Chinese + Japanese) can have 120K+ glyphs
+// Glyphs are loaded on-demand from SD, so high count doesn't affect memory
+static constexpr uint32_t MAX_INTERVAL_COUNT = 10000;
+static constexpr uint32_t MAX_GLYPH_COUNT = 150000;
 static constexpr size_t MIN_FREE_HEAP_AFTER_LOAD = 16384;  // 16KB minimum heap after loading
 
 bool SdFontData::load() {
@@ -294,13 +296,20 @@ bool SdFontData::load() {
   return true;
 }
 
+bool SdFontData::ensureFileOpen() const {
+  if (fontFile && fontFile.isOpen()) {
+    return true;
+  }
+  return SdMan.openFileForRead("SdFont", filePath.c_str(), fontFile);
+}
+
 bool SdFontData::loadGlyphFromSD(int glyphIndex, EpdGlyph* outGlyph) const {
   if (!loaded || glyphIndex < 0 || glyphIndex >= static_cast<int>(header.glyphCount)) {
     return false;
   }
 
-  // Open file for reading
-  if (!SdMan.openFileForRead("SdFont", filePath.c_str(), fontFile)) {
+  // Keep file open for better performance
+  if (!ensureFileOpen()) {
     return false;
   }
 
@@ -308,18 +317,14 @@ bool SdFontData::loadGlyphFromSD(int glyphIndex, EpdGlyph* outGlyph) const {
   uint32_t glyphFileOffset = header.glyphsOffset + (glyphIndex * sizeof(EpdFontGlyph));
 
   if (!fontFile.seekSet(glyphFileOffset)) {
-    fontFile.close();
     return false;
   }
 
   // Read the glyph from file format
   EpdFontGlyph fileGlyph;
   if (fontFile.read(&fileGlyph, sizeof(EpdFontGlyph)) != sizeof(EpdFontGlyph)) {
-    fontFile.close();
     return false;
   }
-
-  fontFile.close();
 
   // Convert from file format to runtime format
   outGlyph->width = fileGlyph.width;
@@ -403,49 +408,43 @@ const uint8_t* SdFontData::getGlyphBitmap(uint32_t codepoint) const {
     return nullptr;
   }
 
-  // Open file for reading glyph and bitmap
-  if (!SdMan.openFileForRead("SdFont", filePath.c_str(), fontFile)) {
+  // Ensure file is open (keeps file handle open for performance)
+  if (!ensureFileOpen()) {
     return nullptr;
   }
 
   // Read glyph metadata first (we need dataLength and dataOffset)
   uint32_t glyphFileOffset = header.glyphsOffset + (glyphIndex * sizeof(EpdFontGlyph));
   if (!fontFile.seekSet(glyphFileOffset)) {
-    fontFile.close();
     return nullptr;
   }
 
   EpdFontGlyph fileGlyph;
   if (fontFile.read(&fileGlyph, sizeof(EpdFontGlyph)) != sizeof(EpdFontGlyph)) {
-    fontFile.close();
     return nullptr;
   }
 
   if (fileGlyph.dataLength == 0) {
-    fontFile.close();
     return nullptr;
   }
 
   // Seek to bitmap data
   if (!fontFile.seekSet(header.bitmapOffset + fileGlyph.dataOffset)) {
-    fontFile.close();
     return nullptr;
   }
 
   // Allocate temporary buffer for reading
   uint8_t* tempBuffer = static_cast<uint8_t*>(malloc(fileGlyph.dataLength));
   if (!tempBuffer) {
-    fontFile.close();
     return nullptr;
   }
 
   if (fontFile.read(tempBuffer, fileGlyph.dataLength) != static_cast<int>(fileGlyph.dataLength)) {
     free(tempBuffer);
-    fontFile.close();
     return nullptr;
   }
 
-  fontFile.close();
+  // File stays open for next glyph read (performance optimization)
 
   // Store in cache
   const uint8_t* result = sharedCache->put(codepoint, tempBuffer, fileGlyph.dataLength);

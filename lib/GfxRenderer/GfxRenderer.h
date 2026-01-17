@@ -54,6 +54,8 @@ class GfxRenderer {
   void setFallbackFont(int fontId) { fallbackFontId = fontId; }
   // Check if a font is registered
   bool hasFont(int fontId) const { return fontMap.find(fontId) != fontMap.end(); }
+  // Remove a font from the registry (frees memory for SD fonts)
+  bool removeFont(int fontId);
   // Get effective font ID (returns fallback if requested font not found)
   int getEffectiveFontId(int fontId) const;
 

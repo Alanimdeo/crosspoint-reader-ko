@@ -12,9 +12,9 @@
 CrossPointSettings CrossPointSettings::instance;
 
 namespace {
-constexpr uint8_t SETTINGS_FILE_VERSION = 3;  // Incremented for Korean-only version
+constexpr uint8_t SETTINGS_FILE_VERSION = 4;  // Incremented for custom font support
 // Increment this when adding new persisted settings fields
-constexpr uint8_t SETTINGS_COUNT = 18;
+constexpr uint8_t SETTINGS_COUNT = 19;
 constexpr char SETTINGS_FILE[] = "/.crosspoint/settings.bin";
 }  // namespace
 
@@ -46,6 +46,7 @@ bool CrossPointSettings::saveToFile() const {
   serialization::writePod(outputFile, textAntiAliasing);
   serialization::writePod(outputFile, hideBatteryPercentage);
   serialization::writePod(outputFile, longPressChapterSkip);
+  serialization::writeString(outputFile, std::string(customFontPath));
   outputFile.close();
 
   Serial.printf("[%lu] [CPS] Settings saved to file\n", millis());
@@ -61,8 +62,8 @@ bool CrossPointSettings::loadFromFile() {
   uint8_t version;
   serialization::readPod(inputFile, version);
 
-  // Handle different versions - accept version 1, 2, 3
-  if (version < 1 || version > 3) {
+  // Handle different versions - accept version 1, 2, 3, 4
+  if (version < 1 || version > 4) {
     Serial.printf("[%lu] [CPS] Deserialization failed: Unknown version %u\n", millis(), version);
     inputFile.close();
     return false;
@@ -130,6 +131,14 @@ bool CrossPointSettings::loadFromFile() {
     if (++settingsRead >= fileSettingsCount) break;
     serialization::readPod(inputFile, longPressChapterSkip);
     if (++settingsRead >= fileSettingsCount) break;
+    // Version 4: Custom font path
+    if (version >= 4) {
+      std::string fontPathStr;
+      serialization::readString(inputFile, fontPathStr);
+      strncpy(customFontPath, fontPathStr.c_str(), sizeof(customFontPath) - 1);
+      customFontPath[sizeof(customFontPath) - 1] = '\0';
+    }
+    if (++settingsRead >= fileSettingsCount) break;
   } while (false);
 
   inputFile.close();
@@ -183,11 +192,34 @@ int CrossPointSettings::getRefreshFrequency() const {
 }
 
 int CrossPointSettings::getReaderFontId() const {
-  // Fixed to Eulyoo 14pt for Korean reader
+  // Return custom font ID if a custom font is configured
+  // The actual font loading and availability check happens in main.cpp
+  if (hasCustomFont()) {
+    return CUSTOM_FONT_ID;
+  }
+  // Default to Eulyoo 14pt for Korean reader
   return EULYOO_14_FONT_ID;
 }
 
 int CrossPointSettings::getUiFontId() const {
   // Fixed to Pretendard 10pt
   return UI_FONT_ID;
+}
+
+const char* CrossPointSettings::getCustomFontName() const {
+  if (!hasCustomFont()) {
+    return "을유1945 (기본)";
+  }
+  // Extract filename from path (e.g., "/.crosspoint/fonts/MyFont.bin" -> "MyFont")
+  const char* lastSlash = strrchr(customFontPath, '/');
+  const char* filename = lastSlash ? lastSlash + 1 : customFontPath;
+  // Remove .bin extension for display
+  static char nameBuffer[32];
+  strncpy(nameBuffer, filename, sizeof(nameBuffer) - 1);
+  nameBuffer[sizeof(nameBuffer) - 1] = '\0';
+  char* dot = strrchr(nameBuffer, '.');
+  if (dot) {
+    *dot = '\0';
+  }
+  return nameBuffer;
 }

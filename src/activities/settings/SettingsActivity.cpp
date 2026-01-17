@@ -7,13 +7,14 @@
 
 #include "CalibreSettingsActivity.h"
 #include "CrossPointSettings.h"
+#include "FontSelectionActivity.h"
 #include "MappedInputManager.h"
 #include "OtaUpdateActivity.h"
 #include "fontIds.h"
 
 // Define the static settings list
 namespace {
-constexpr int settingsCount = 18;
+constexpr int settingsCount = 19;
 const SettingInfo settingsList[settingsCount] = {
     // Should match with SLEEP_SCREEN_MODE
     SettingInfo::Enum("절전 화면 이미지", &CrossPointSettings::sleepScreen,
@@ -37,6 +38,7 @@ const SettingInfo settingsList[settingsCount] = {
     SettingInfo::Enum("절전 시간", &CrossPointSettings::sleepTimeout, {"1분", "5분", "10분", "15분", "30분"}),
     SettingInfo::Enum("새로고침 주기", &CrossPointSettings::refreshFrequency,
                       {"1 페이지", "5 페이지", "10 페이지", "15 페이지", "30 페이지"}),
+    SettingInfo::Action("글꼴 설정"),
     SettingInfo::Action("Calibre 설정"),
     SettingInfo::Action("업데이트 확인"),
 };
@@ -136,7 +138,15 @@ void SettingsActivity::toggleCurrentSetting() {
       SETTINGS.*(setting.valuePtr) = currentValue + setting.valueRange.step;
     }
   } else if (setting.type == SettingType::ACTION) {
-    if (strcmp(setting.name, "Calibre 설정") == 0) {
+    if (strcmp(setting.name, "글꼴 설정") == 0) {
+      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      exitActivity();
+      enterNewActivity(new FontSelectionActivity(renderer, mappedInput, [this] {
+        exitActivity();
+        updateRequired = true;
+      }));
+      xSemaphoreGive(renderingMutex);
+    } else if (strcmp(setting.name, "Calibre 설정") == 0) {
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
       exitActivity();
       enterNewActivity(new CalibreSettingsActivity(renderer, mappedInput, [this] {
@@ -204,6 +214,9 @@ void SettingsActivity::render() const {
       valueText = settingsList[i].enumValues[value];
     } else if (settingsList[i].type == SettingType::VALUE && settingsList[i].valuePtr != nullptr) {
       valueText = std::to_string(SETTINGS.*(settingsList[i].valuePtr));
+    } else if (settingsList[i].type == SettingType::ACTION && strcmp(settingsList[i].name, "글꼴 설정") == 0) {
+      // Show current font name for font settings
+      valueText = SETTINGS.getCustomFontName();
     }
     const auto width = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str());
     renderer.drawText(UI_10_FONT_ID, pageWidth - 20 - width, settingY, valueText.c_str(), i != selectedSettingIndex);

@@ -10,6 +10,16 @@ void GfxRenderer::insertSdFont(const int fontId, SdFontFamily* font) {
   fontMap[fontId] = std::unique_ptr<UnifiedFontFamily>(new UnifiedFontFamily(font));
 }
 
+bool GfxRenderer::removeFont(const int fontId) {
+  auto it = fontMap.find(fontId);
+  if (it == fontMap.end()) {
+    return false;
+  }
+  fontMap.erase(it);
+  Serial.printf("[%lu] [GFX] Removed font %d\n", millis(), fontId);
+  return true;
+}
+
 int GfxRenderer::getEffectiveFontId(const int fontId) const {
   if (fontMap.find(fontId) != fontMap.end()) {
     return fontId;

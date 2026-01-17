@@ -98,6 +98,53 @@ enum SdFontIndex {
   SD_EULYOO_18 = 5
 };
 
+// Load custom reader font from SD card if configured
+// Returns true if custom font was loaded successfully
+bool loadCustomReaderFont(GfxRenderer& gfxRenderer) {
+  if (!SETTINGS.hasCustomFont()) {
+    Serial.printf("[%lu] [FNT] No custom font configured, using default Eulyoo\n", millis());
+    return false;
+  }
+
+  const char* fontPath = SETTINGS.customFontPath;
+  Serial.printf("[%lu] [FNT] Loading custom font: %s\n", millis(), fontPath);
+
+  if (!SdMan.exists(fontPath)) {
+    Serial.printf("[%lu] [FNT] Custom font file not found: %s\n", millis(), fontPath);
+    // Clear invalid font path
+    SETTINGS.customFontPath[0] = '\0';
+    SETTINGS.saveToFile();
+    return false;
+  }
+
+  // Try to load the custom font
+  if (trySdFontLoad(gfxRenderer, CUSTOM_FONT_ID, "CustomReaderFont", fontPath)) {
+    Serial.printf("[%lu] [FNT] Custom reader font loaded successfully\n", millis());
+    return true;
+  }
+
+  Serial.printf("[%lu] [FNT] Failed to load custom font, will use default\n", millis());
+  return false;
+}
+
+// Reload custom reader font - removes old font and loads new one
+// Call this when font settings change to apply immediately without reboot
+bool reloadCustomReaderFont() {
+  Serial.printf("[%lu] [FNT] Reloading custom reader font...\n", millis());
+
+  // Remove existing custom font if any
+  if (renderer.hasFont(CUSTOM_FONT_ID)) {
+    renderer.removeFont(CUSTOM_FONT_ID);
+    Serial.printf("[%lu] [FNT] Removed previous custom font\n", millis());
+  }
+
+  // Load new custom font if configured
+  return loadCustomReaderFont(renderer);
+}
+
+// Get reference to global renderer (for font operations from other modules)
+GfxRenderer& getGlobalRenderer() { return renderer; }
+
 // SD font loading is disabled - Korean fonts need to be embedded in flash
 // due to ESP32-C3 memory constraints. SD card loading causes crashes.
 void loadSdFonts(GfxRenderer& /*renderer*/) {
@@ -222,8 +269,11 @@ void setupDisplayAndFonts() {
   renderer.insertFont(UI_12_FONT_ID, &uiFontFamily);
   renderer.insertFont(SMALL_FONT_ID, &uiFontFamily);
 
-  // Korean EPUB reader font (Eulyoo 14pt)
+  // Korean EPUB reader font (Eulyoo 14pt) - always register as fallback
   renderer.insertFont(EULYOO_14_FONT_ID, &eulyoo14FontFamily);
+
+  // Try to load custom reader font from SD card
+  loadCustomReaderFont(renderer);
 
   // Set fallback font to Pretendard UI
   renderer.setFallbackFont(UI_FONT_ID);

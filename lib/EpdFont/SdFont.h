@@ -105,6 +105,9 @@ class SdFontData {
   // Load a single glyph from SD card by index
   bool loadGlyphFromSD(int glyphIndex, EpdGlyph* outGlyph) const;
 
+  // Ensure font file is open (keeps handle open for performance)
+  bool ensureFileOpen() const;
+
  public:
   explicit SdFontData(const char* path);
   ~SdFontData();

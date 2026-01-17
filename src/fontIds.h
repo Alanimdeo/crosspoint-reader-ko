@@ -9,3 +9,6 @@
 
 // Korean EPUB reader font (Eulyoo 14pt)
 #define EULYOO_14_FONT_ID (-1446433083)
+
+// Custom reader font loaded from SD card
+#define CUSTOM_FONT_ID (-999999)
