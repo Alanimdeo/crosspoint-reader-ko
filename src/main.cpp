@@ -123,7 +123,10 @@ bool loadCustomReaderFont(GfxRenderer& gfxRenderer) {
     return true;
   }
 
-  Serial.printf("[%lu] [FNT] Failed to load custom font, will use default\n", millis());
+  Serial.printf("[%lu] [FNT] Failed to load custom font, clearing setting to use default\n", millis());
+  // Clear invalid font path so getReaderFontId() returns default font
+  SETTINGS.customFontPath[0] = '\0';
+  SETTINGS.saveToFile();
   return false;
 }
 
