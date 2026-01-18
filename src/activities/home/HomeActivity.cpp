@@ -48,6 +48,24 @@ void HomeActivity::onEnter() {
       lastBookTitle = lastBookTitle.substr(lastSlash + 1);
     }
 
+    // Show loading overlay on current screen while generating cover thumbnail
+    {
+      const char* loadingText = "표지 로딩 중...";
+      const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, loadingText);
+      const int textHeight = renderer.getLineHeight(UI_10_FONT_ID);
+      constexpr int padding = 20;
+      const int boxWidth = textWidth + padding * 2;
+      const int boxHeight = textHeight + padding * 2;
+      const int boxX = (renderer.getScreenWidth() - boxWidth) / 2;
+      const int boxY = (renderer.getScreenHeight() - boxHeight) / 2;
+
+      // Draw white filled box with black border
+      renderer.fillRect(boxX, boxY, boxWidth, boxHeight, false);
+      renderer.drawRect(boxX, boxY, boxWidth, boxHeight, true);
+      renderer.drawCenteredText(UI_10_FONT_ID, boxY + padding, loadingText, true);
+      renderer.displayBuffer();
+    }
+
     // If epub, try to load the metadata for title/author and cover
     if (StringUtils::checkFileExtension(lastBookTitle, ".epub")) {
       Epub epub(APP_STATE.openEpubPath, "/.crosspoint");
