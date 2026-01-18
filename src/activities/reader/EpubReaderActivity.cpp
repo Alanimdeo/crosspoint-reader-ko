@@ -31,6 +31,9 @@ void EpubReaderActivity::onEnter() {
     return;
   }
 
+  // Cache current font ID for change detection
+  cachedFontId = SETTINGS.getReaderFontId();
+
   // Configure screen orientation based on settings
   switch (SETTINGS.orientation) {
     case CrossPointSettings::ORIENTATION::PORTRAIT:
@@ -231,6 +234,15 @@ void EpubReaderActivity::renderScreen() {
   if (!epub) {
     return;
   }
+
+  // Detect font change and invalidate section cache
+  const int currentFontId = SETTINGS.getReaderFontId();
+  if (cachedFontId != 0 && cachedFontId != currentFontId) {
+    Serial.printf("[%lu] [ERS] Font changed from %d to %d, invalidating section\n", millis(), cachedFontId,
+                  currentFontId);
+    section.reset();
+  }
+  cachedFontId = currentFontId;
 
   // edge case handling for sub-zero spine index
   if (currentSpineIndex < 0) {

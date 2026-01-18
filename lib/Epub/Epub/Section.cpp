@@ -81,6 +81,9 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     serialization::readPod(file, fileViewportWidth);
     serialization::readPod(file, fileViewportHeight);
 
+    Serial.printf("[%lu] [SCT] Cache check: fontId=%d (file=%d), viewport=%dx%d (file=%dx%d)\n", millis(), fontId,
+                  fileFontId, viewportWidth, viewportHeight, fileViewportWidth, fileViewportHeight);
+
     if (fontId != fileFontId || lineCompression != fileLineCompression ||
         extraParagraphSpacing != fileExtraParagraphSpacing || paragraphAlignment != fileParagraphAlignment ||
         viewportWidth != fileViewportWidth || viewportHeight != fileViewportHeight) {

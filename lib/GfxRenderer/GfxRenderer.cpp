@@ -24,6 +24,11 @@ int GfxRenderer::getEffectiveFontId(const int fontId) const {
   if (fontMap.find(fontId) != fontMap.end()) {
     return fontId;
   }
+  // Custom font IDs are negative (hash-based), map to CUSTOM_FONT_ID slot (-999999)
+  constexpr int CUSTOM_FONT_ID = -999999;
+  if (fontId < 0 && fontMap.find(CUSTOM_FONT_ID) != fontMap.end()) {
+    return CUSTOM_FONT_ID;
+  }
   // Font not found, return fallback
   if (fallbackFontId != 0 && fontMap.find(fallbackFontId) != fontMap.end()) {
     return fallbackFontId;

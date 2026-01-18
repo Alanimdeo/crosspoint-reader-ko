@@ -195,7 +195,15 @@ int CrossPointSettings::getReaderFontId() const {
   // Return custom font ID if a custom font is configured
   // The actual font loading and availability check happens in main.cpp
   if (hasCustomFont()) {
-    return CUSTOM_FONT_ID;
+    // Generate unique negative ID based on font path hash
+    // This ensures different custom fonts have different IDs for cache invalidation
+    uint32_t hash = 5381;
+    for (const char* p = customFontPath; *p; p++) {
+      hash = ((hash << 5) + hash) + static_cast<uint8_t>(*p);  // djb2 hash
+    }
+    // Return negative value to avoid collision with built-in font IDs
+    // Mask to ensure it stays in valid range
+    return -static_cast<int>((hash & 0x7FFFFFFF) | 1);
   }
   // Default to Eulyoo 14pt for Korean reader
   return EULYOO_14_FONT_ID;
