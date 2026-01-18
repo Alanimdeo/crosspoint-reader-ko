@@ -381,6 +381,21 @@ void TxtReaderActivity::renderScreen() {
     return;
   }
 
+  // Check if font or settings changed since initialization
+  if (initialized) {
+    const int currentFontId = SETTINGS.getReaderFontId();
+    const int currentMargin = SETTINGS.screenMargin;
+    const uint8_t currentAlignment = SETTINGS.paragraphAlignment;
+
+    if (currentFontId != cachedFontId || currentMargin != cachedScreenMargin ||
+        currentAlignment != cachedParagraphAlignment) {
+      Serial.printf("[%lu] [TRS] Settings changed, reinitializing (font: %d->%d)\n", millis(), cachedFontId,
+                    currentFontId);
+      initialized = false;
+      pageOffsets.clear();
+    }
+  }
+
   // Initialize reader if not done
   if (!initialized) {
     renderer.clearScreen();
