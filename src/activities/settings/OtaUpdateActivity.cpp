@@ -39,7 +39,7 @@ void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
     return;
   }
 
-  if (!updater.isUpdateNewer()) {
+  if (!updater.isUpdateNewerKO()) {
     Serial.printf("[%lu] [OTA] No new update available\n", millis());
     xSemaphoreTake(renderingMutex, portMAX_DELAY);
     state = NO_UPDATE;
