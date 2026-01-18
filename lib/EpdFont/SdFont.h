@@ -55,7 +55,7 @@ class GlyphBitmapCache {
  */
 class GlyphMetadataCache {
  public:
-  static constexpr size_t MAX_ENTRIES = 512;  // Increased for Korean text (many unique characters)
+  static constexpr size_t MAX_ENTRIES = 128;  // Balanced for Korean text while conserving memory
 
   struct CacheEntry {
     uint32_t codepoint;

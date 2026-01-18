@@ -134,7 +134,7 @@ SdFontData::SdFontData(const char* path) : filePath(path), loaded(false), interv
   // Initialize shared cache on first SdFontData creation
   // Use larger cache (64KB) to improve performance with Korean fonts
   if (sharedCache == nullptr) {
-    sharedCache = new GlyphBitmapCache(65536);  // 64KB cache
+    sharedCache = new GlyphBitmapCache(32768);  // 32KB cache (conserve memory for XTC)
   }
   cacheRefCount++;
 }
