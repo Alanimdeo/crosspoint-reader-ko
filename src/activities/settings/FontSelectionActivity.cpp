@@ -97,27 +97,15 @@ void FontSelectionActivity::taskTrampoline(void* param) {
   self->displayTaskLoop();
 }
 
-void FontSelectionActivity::loadFontList() {
-  fontFiles.clear();
-  fontNames.clear();
-
-  // First entry is always the default font (empty path means default)
-  fontFiles.emplace_back("");
-  fontNames.emplace_back(DEFAULT_FONT_NAME);
-
-  // Ensure fonts directory exists
-  SdMan.mkdir("/.crosspoint");
-  SdMan.mkdir(FONTS_DIR);
-
-  // Try to open the fonts folder
-  FsFile dir = SdMan.open(FONTS_DIR);
+void FontSelectionActivity::scanFontsInDirectory(const char* dirPath) {
+  FsFile dir = SdMan.open(dirPath);
   if (!dir) {
-    Serial.printf("[%lu] [FNT] Font folder %s not found\n", millis(), FONTS_DIR);
+    Serial.printf("[%lu] [FNT] Font folder %s not found\n", millis(), dirPath);
     return;
   }
 
   if (!dir.isDir()) {
-    Serial.printf("[%lu] [FNT] %s is not a directory\n", millis(), FONTS_DIR);
+    Serial.printf("[%lu] [FNT] %s is not a directory\n", millis(), dirPath);
     dir.close();
     return;
   }
@@ -133,7 +121,7 @@ void FontSelectionActivity::loadFontList() {
       const size_t len = strlen(filename);
       if (len > 8 && strcasecmp(filename + len - 8, ".epdfont") == 0 && strncmp(filename, "._", 2) != 0) {
         // Build full path
-        std::string fullPath = std::string(FONTS_DIR) + "/" + filename;
+        std::string fullPath = std::string(dirPath) + "/" + filename;
         fontFiles.push_back(fullPath);
 
         // Extract name without extension for display
@@ -146,6 +134,25 @@ void FontSelectionActivity::loadFontList() {
     file.close();
   }
   dir.close();
+}
+
+void FontSelectionActivity::loadFontList() {
+  fontFiles.clear();
+  fontNames.clear();
+
+  // First entry is always the default font (empty path means default)
+  fontFiles.emplace_back("");
+  fontNames.emplace_back(DEFAULT_FONT_NAME);
+
+  // Ensure fonts directory exists
+  SdMan.mkdir("/.crosspoint");
+  SdMan.mkdir(FONTS_DIR);
+
+  // Scan fonts from /.crosspoint/fonts
+  scanFontsInDirectory(FONTS_DIR);
+
+  // Also scan fonts from /fonts (root folder)
+  scanFontsInDirectory(ROOT_FONTS_DIR);
 
   Serial.printf("[%lu] [FNT] Total fonts found: %zu (including default)\n", millis(), fontFiles.size());
 

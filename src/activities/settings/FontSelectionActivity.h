@@ -40,4 +40,7 @@ class FontSelectionActivity final : public ActivityWithSubactivity {
   void handleSelection();
 
   static constexpr const char* FONTS_DIR = "/.crosspoint/fonts";
+  static constexpr const char* ROOT_FONTS_DIR = "/fonts";
+
+  void scanFontsInDirectory(const char* dirPath);
 };
