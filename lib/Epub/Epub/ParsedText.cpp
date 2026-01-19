@@ -42,10 +42,11 @@ std::vector<uint16_t> ParsedText::calculateWordWidths(const GfxRenderer& rendere
   std::vector<uint16_t> wordWidths;
   wordWidths.reserve(totalWordCount);
 
-  // add em-space at the beginning of first word in paragraph to indent
+  // add ideographic space (U+3000) at the beginning of first word in paragraph to indent
+  // Note: Using U+3000 instead of EM-SPACE (U+2003) for Korean font compatibility
   if ((style == TextBlock::JUSTIFIED || style == TextBlock::LEFT_ALIGN) && !extraParagraphSpacing) {
     std::string& first_word = words.front();
-    first_word.insert(0, "\xe2\x80\x83");
+    first_word.insert(0, "\xe3\x80\x80");
   }
 
   auto wordsIt = words.begin();
