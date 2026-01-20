@@ -70,6 +70,5 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   // Block style
   serialization::readPod(file, style);
 
-  return std::unique_ptr<TextBlock>(
-      new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles), style));
+  return std::unique_ptr<TextBlock>(new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles), style));
 }

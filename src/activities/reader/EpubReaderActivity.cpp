@@ -279,8 +279,8 @@ void EpubReaderActivity::renderScreen() {
     const uint16_t viewportHeight = renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom;
 
     if (!section->loadSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
-                                  SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment,
-                                  SETTINGS.characterWrap, viewportWidth, viewportHeight)) {
+                                  SETTINGS.extraParagraphSpacing, SETTINGS.paragraphAlignment, SETTINGS.characterWrap,
+                                  viewportWidth, viewportHeight)) {
       Serial.printf("[%lu] [ERS] Cache not found, building...\n", millis());
 
       // Progress bar dimensions

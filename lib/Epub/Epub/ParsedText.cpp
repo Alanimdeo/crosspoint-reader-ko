@@ -264,8 +264,8 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
     // Process the line
     if (!lineWords.empty() && (!isLastLine || includeLastLine)) {
       TextBlock::Style lineStyle = isLastLine ? TextBlock::LEFT_ALIGN : TextBlock::JUSTIFIED;
-      processLine(std::make_shared<TextBlock>(std::move(lineWords), std::move(lineXPos),
-                                               std::move(lineWordStyles), lineStyle));
+      processLine(
+          std::make_shared<TextBlock>(std::move(lineWords), std::move(lineXPos), std::move(lineWordStyles), lineStyle));
     }
   }
 }
