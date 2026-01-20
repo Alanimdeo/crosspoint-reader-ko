@@ -30,11 +30,21 @@ bool CrossPointState::loadFromFile() {
     return false;
   }
 
+  // Check file size for sanity
+  const uint32_t fileSize = inputFile.size();
+  if (fileSize < 1 || fileSize > 1024) {
+    Serial.printf("[%lu] [STA] State file corrupted (size=%u), deleting\n", millis(), fileSize);
+    inputFile.close();
+    SdMan.remove(STATE_FILE);
+    return false;
+  }
+
   uint8_t version;
   serialization::readPod(inputFile, version);
   if (version > STATE_FILE_VERSION) {
-    Serial.printf("[%lu] [CPS] Deserialization failed: Unknown version %u\n", millis(), version);
+    Serial.printf("[%lu] [STA] Deserialization failed: Unknown version %u, deleting state file\n", millis(), version);
     inputFile.close();
+    SdMan.remove(STATE_FILE);
     return false;
   }
 

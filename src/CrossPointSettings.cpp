@@ -14,7 +14,7 @@ CrossPointSettings CrossPointSettings::instance;
 namespace {
 constexpr uint8_t SETTINGS_FILE_VERSION = 5;  // Incremented for character wrap support
 // Increment this when adding new persisted settings fields
-constexpr uint8_t SETTINGS_COUNT = 20;
+constexpr uint8_t SETTINGS_COUNT = 19;
 constexpr char SETTINGS_FILE[] = "/.crosspoint/settings.bin";
 }  // namespace
 
@@ -60,18 +60,36 @@ bool CrossPointSettings::loadFromFile() {
     return false;
   }
 
+  // Check file size for sanity
+  const uint32_t fileSize = inputFile.size();
+  if (fileSize < 2 || fileSize > 4096) {
+    Serial.printf("[%lu] [CPS] Settings file corrupted (size=%u), deleting\n", millis(), fileSize);
+    inputFile.close();
+    SdMan.remove(SETTINGS_FILE);
+    return false;
+  }
+
   uint8_t version;
   serialization::readPod(inputFile, version);
 
   // Handle different versions - accept version 1, 2, 3, 4, 5
   if (version < 1 || version > 5) {
-    Serial.printf("[%lu] [CPS] Deserialization failed: Unknown version %u\n", millis(), version);
+    Serial.printf("[%lu] [CPS] Deserialization failed: Unknown version %u, deleting settings file\n", millis(), version);
     inputFile.close();
+    SdMan.remove(SETTINGS_FILE);
     return false;
   }
 
   uint8_t fileSettingsCount = 0;
   serialization::readPod(inputFile, fileSettingsCount);
+
+  // Sanity check settings count
+  if (fileSettingsCount > 50) {
+    Serial.printf("[%lu] [CPS] Settings count invalid (%u), deleting settings file\n", millis(), fileSettingsCount);
+    inputFile.close();
+    SdMan.remove(SETTINGS_FILE);
+    return false;
+  }
 
   // load settings that exist (support older files with fewer fields)
   uint8_t settingsRead = 0;
@@ -126,25 +144,26 @@ bool CrossPointSettings::loadFromFile() {
       strncpy(opdsServerUrl, urlStr.c_str(), sizeof(opdsServerUrl) - 1);
       opdsServerUrl[sizeof(opdsServerUrl) - 1] = '\0';
     }
+    if (++settingsRead >= fileSettingsCount) break;
     serialization::readPod(inputFile, textAntiAliasing);
     if (++settingsRead >= fileSettingsCount) break;
     serialization::readPod(inputFile, hideBatteryPercentage);
     if (++settingsRead >= fileSettingsCount) break;
     serialization::readPod(inputFile, longPressChapterSkip);
     if (++settingsRead >= fileSettingsCount) break;
-    // Version 4: Custom font path
+    // Version 4+: Custom font path
     if (version >= 4) {
       std::string fontPathStr;
       serialization::readString(inputFile, fontPathStr);
       strncpy(customFontPath, fontPathStr.c_str(), sizeof(customFontPath) - 1);
       customFontPath[sizeof(customFontPath) - 1] = '\0';
+      if (++settingsRead >= fileSettingsCount) break;
     }
-    if (++settingsRead >= fileSettingsCount) break;
-    // Version 5: Character wrap
+    // Version 5+: Character wrap
     if (version >= 5) {
       serialization::readPod(inputFile, characterWrap);
+      if (++settingsRead >= fileSettingsCount) break;
     }
-    if (++settingsRead >= fileSettingsCount) break;
   } while (false);
 
   inputFile.close();
