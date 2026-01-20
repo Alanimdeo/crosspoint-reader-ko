@@ -1,0 +1,151 @@
+# Character Wrap Algorithm for Korean Text
+
+## Overview
+
+This document describes the character-level line wrapping algorithm for Korean text with justified alignment. The algorithm ensures consistent word spacing across all lines while allowing character-level word breaks when necessary.
+
+## Problem
+
+With traditional justified text alignment, when a word doesn't fit on a line and wraps to the next, the remaining words on the current line get excessive spacing between them. This is particularly problematic for Korean text where words can be long.
+
+### Example of the Problem
+
+```
+일반적인 양쪽정렬:
+[단어1          단어2          단어3]  <- 공백이 너무 큼
+[긴단어가다음줄로넘어감]
+```
+
+## Solution
+
+The character wrap algorithm maintains consistent word spacing (1.0x - 1.5x of normal space width) by:
+1. Filling lines greedily with words
+2. Splitting words at character boundaries when spacing would exceed the maximum limit
+
+### Target Spacing Range
+
+- **Minimum Spacing**: 1.0x of normal space width (`spaceWidth`)
+- **Maximum Spacing**: 1.5x of normal space width (`spaceWidth + spaceWidth/2`)
+
+## Algorithm
+
+### Phase 1: Greedy Word Collection
+
+Collect words that fit on the current line while maintaining `spacing >= minSpacing`:
+
+```
+for each word in input:
+    calculate newSpacing if we add this word
+
+    if first word on line:
+        add word (or partial if too long)
+    else if newSpacing >= minSpacing:
+        add word
+    else:
+        # Word doesn't fit entirely
+        calculate maxPartialWidth to maintain minSpacing
+        add as many characters as possible within maxPartialWidth
+        break (line is full)
+```
+
+**Key formula for partial word width**:
+```
+maxPartialWidth = pageWidth - totalWordWidth - gapCount * minSpacing
+```
+
+### Phase 2: Fill Excess Space
+
+If spacing exceeds `maxSpacing`, add characters from the next word:
+
+```
+while spacing > maxSpacing and words remain:
+    calculate maxPartialWidth to keep spacing within range
+    add characters from next word up to maxPartialWidth
+    update totalWordWidth
+    recalculate spacing
+```
+
+**Spacing constraint formulas**:
+```
+# To keep spacing <= maxSpacing:
+partialWidth >= pageWidth - totalWordWidth - gapCount * maxSpacing
+
+# To keep spacing >= minSpacing:
+partialWidth <= pageWidth - totalWordWidth - gapCount * minSpacing
+```
+
+### Phase 3: Calculate Justified Positions
+
+Distribute spare space evenly across word gaps:
+
+```
+gapCount = wordCount - 1
+spareSpace = pageWidth - totalWordWidth
+baseSpacing = spareSpace / gapCount
+extraPixels = spareSpace % gapCount  # Distribute to first N gaps
+
+xpos = 0
+for i, word in enumerate(words):
+    positions[i] = xpos
+    if i < wordCount - 1:
+        gap = baseSpacing + (1 if i < extraPixels else 0)
+        xpos += wordWidths[i] + gap
+```
+
+This ensures the last word's right edge aligns exactly with `pageWidth`.
+
+### Last Line Handling
+
+The last line uses left alignment with minimum spacing (standard typographic convention).
+
+## UTF-8 Character Splitting
+
+Korean characters are encoded as 3-byte UTF-8 sequences. The algorithm handles multi-byte characters correctly:
+
+```cpp
+static std::vector<std::string> splitUtf8Chars(const std::string& str) {
+    std::vector<std::string> chars;
+    const char* p = str.c_str();
+    while (*p) {
+        int charLen = 1;
+        const unsigned char c = static_cast<unsigned char>(*p);
+        if ((c & 0xF8) == 0xF0) charLen = 4;      // 4-byte UTF-8
+        else if ((c & 0xF0) == 0xE0) charLen = 3;  // 3-byte UTF-8 (Korean)
+        else if ((c & 0xE0) == 0xC0) charLen = 2;  // 2-byte UTF-8
+        chars.push_back(std::string(p, charLen));
+        p += charLen;
+    }
+    return chars;
+}
+```
+
+## Visual Result
+
+```
+Character wrap enabled:
+[단어1 단어2 단어3 긴단어의앞]  <- 균등한 공백 (1.0x-1.5x)
+[부분 단어4 단어5 단어6 단어]  <- 균등한 공백 (1.0x-1.5x)
+[7의끝부분]                    <- 마지막 줄 왼쪽 정렬
+```
+
+## Configuration
+
+The feature is controlled by the `characterWrap` setting in `CrossPointSettings`:
+
+```cpp
+// Settings
+uint8_t characterWrap = 0;  // 0 = disabled, 1 = enabled
+```
+
+UI toggle available in Settings: "문자 단위 줄바꿈"
+
+## Files Modified
+
+- `ParsedText.cpp` - Core algorithm implementation (`layoutCharacterWrap`)
+- `ParsedText.h` - Method declaration
+- `CrossPointSettings.h/cpp` - Setting storage
+- `SettingsActivity.cpp` - UI toggle
+- `Section.cpp/h` - Cache version bump
+- `ChapterHtmlSlimParser.cpp/h` - Pass setting to parser
+- `EpubReaderActivity.cpp` - Pass setting to Section
+- `TxtReaderActivity.cpp/h` - TXT reader support

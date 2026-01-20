@@ -84,6 +84,8 @@ class CrossPointSettings {
   uint8_t longPressChapterSkip = 1;
   // Custom reader font path (empty means use default Eulyoo font)
   char customFontPath[64] = "";
+  // Character-level line wrapping for Korean text (breaks at any character, not just spaces)
+  uint8_t characterWrap = 0;
 
   ~CrossPointSettings() = default;
 

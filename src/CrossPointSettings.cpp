@@ -12,9 +12,9 @@
 CrossPointSettings CrossPointSettings::instance;
 
 namespace {
-constexpr uint8_t SETTINGS_FILE_VERSION = 4;  // Incremented for custom font support
+constexpr uint8_t SETTINGS_FILE_VERSION = 5;  // Incremented for character wrap support
 // Increment this when adding new persisted settings fields
-constexpr uint8_t SETTINGS_COUNT = 19;
+constexpr uint8_t SETTINGS_COUNT = 20;
 constexpr char SETTINGS_FILE[] = "/.crosspoint/settings.bin";
 }  // namespace
 
@@ -47,6 +47,7 @@ bool CrossPointSettings::saveToFile() const {
   serialization::writePod(outputFile, hideBatteryPercentage);
   serialization::writePod(outputFile, longPressChapterSkip);
   serialization::writeString(outputFile, std::string(customFontPath));
+  serialization::writePod(outputFile, characterWrap);
   outputFile.close();
 
   Serial.printf("[%lu] [CPS] Settings saved to file\n", millis());
@@ -62,8 +63,8 @@ bool CrossPointSettings::loadFromFile() {
   uint8_t version;
   serialization::readPod(inputFile, version);
 
-  // Handle different versions - accept version 1, 2, 3, 4
-  if (version < 1 || version > 4) {
+  // Handle different versions - accept version 1, 2, 3, 4, 5
+  if (version < 1 || version > 5) {
     Serial.printf("[%lu] [CPS] Deserialization failed: Unknown version %u\n", millis(), version);
     inputFile.close();
     return false;
@@ -137,6 +138,11 @@ bool CrossPointSettings::loadFromFile() {
       serialization::readString(inputFile, fontPathStr);
       strncpy(customFontPath, fontPathStr.c_str(), sizeof(customFontPath) - 1);
       customFontPath[sizeof(customFontPath) - 1] = '\0';
+    }
+    if (++settingsRead >= fileSettingsCount) break;
+    // Version 5: Character wrap
+    if (version >= 5) {
+      serialization::readPod(inputFile, characterWrap);
     }
     if (++settingsRead >= fileSettingsCount) break;
   } while (false);

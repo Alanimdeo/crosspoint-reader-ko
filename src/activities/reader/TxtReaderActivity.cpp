@@ -18,7 +18,7 @@ constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
 
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t CACHE_VERSION = 2;          // Increment when cache format changes
+constexpr uint8_t CACHE_VERSION = 3;          // Increment when cache format changes
 
 // Find UTF-8 character boundary at or before pos
 size_t findUtf8Boundary(const std::string& str, size_t pos) {
@@ -69,8 +69,8 @@ size_t findBreakPosition(const GfxRenderer& renderer, int fontId, const std::str
     }
   }
 
-  // Try to break at word boundary (space) if possible
-  if (bestFit > 0 && bestFit < line.length()) {
+  // Try to break at word boundary (space) if possible, unless character wrap is enabled
+  if (!SETTINGS.characterWrap && bestFit > 0 && bestFit < line.length()) {
     size_t spacePos = line.rfind(' ', bestFit);
     if (spacePos != std::string::npos && spacePos > 0) {
       // Check if breaking at space still fits
@@ -212,6 +212,7 @@ void TxtReaderActivity::initializeReader() {
   cachedFontId = SETTINGS.getReaderFontId();
   cachedScreenMargin = SETTINGS.screenMargin;
   cachedParagraphAlignment = SETTINGS.paragraphAlignment;
+  cachedCharacterWrap = SETTINGS.characterWrap;
 
   // Calculate viewport dimensions
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
@@ -438,9 +439,10 @@ void TxtReaderActivity::renderScreen() {
     const int currentFontId = SETTINGS.getReaderFontId();
     const int currentMargin = SETTINGS.screenMargin;
     const uint8_t currentAlignment = SETTINGS.paragraphAlignment;
+    const uint8_t currentCharacterWrap = SETTINGS.characterWrap;
 
     if (currentFontId != cachedFontId || currentMargin != cachedScreenMargin ||
-        currentAlignment != cachedParagraphAlignment) {
+        currentAlignment != cachedParagraphAlignment || currentCharacterWrap != cachedCharacterWrap) {
       Serial.printf("[%lu] [TRS] Settings changed, reinitializing (font: %d->%d)\n", millis(), cachedFontId,
                     currentFontId);
       initialized = false;
@@ -725,6 +727,14 @@ bool TxtReaderActivity::loadPageIndexCache() {
     return false;
   }
 
+  uint8_t characterWrap;
+  serialization::readPod(f, characterWrap);
+  if (characterWrap != cachedCharacterWrap) {
+    Serial.printf("[%lu] [TRS] Cache character wrap mismatch, rebuilding\n", millis());
+    f.close();
+    return false;
+  }
+
   uint32_t numPages;
   serialization::readPod(f, numPages);
 
@@ -761,6 +771,7 @@ void TxtReaderActivity::savePageIndexCache() const {
   serialization::writePod(f, static_cast<int32_t>(cachedFontId));
   serialization::writePod(f, static_cast<int32_t>(cachedScreenMargin));
   serialization::writePod(f, cachedParagraphAlignment);
+  serialization::writePod(f, cachedCharacterWrap);
   serialization::writePod(f, static_cast<uint32_t>(pageOffsets.size()));
 
   // Write page offsets

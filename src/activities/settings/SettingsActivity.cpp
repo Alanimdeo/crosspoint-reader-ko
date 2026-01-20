@@ -14,7 +14,7 @@
 
 // Define the static settings list
 namespace {
-constexpr int settingsCount = 19;
+constexpr int settingsCount = 20;
 const SettingInfo settingsList[settingsCount] = {
     // Should match with SLEEP_SCREEN_MODE
     SettingInfo::Enum("절전 화면 이미지", &CrossPointSettings::sleepScreen,
@@ -35,6 +35,7 @@ const SettingInfo settingsList[settingsCount] = {
     SettingInfo::Enum("줄 간격", &CrossPointSettings::lineSpacing, {"좁게", "보통", "넓게"}),
     SettingInfo::Value("화면 여백", &CrossPointSettings::screenMargin, {5, 40, 5}),
     SettingInfo::Enum("문단 정렬", &CrossPointSettings::paragraphAlignment, {"양쪽 정렬", "왼쪽", "가운데", "오른쪽"}),
+    SettingInfo::Toggle("문자 단위 줄바꿈", &CrossPointSettings::characterWrap),
     SettingInfo::Enum("절전 시간", &CrossPointSettings::sleepTimeout, {"1분", "5분", "10분", "15분", "30분"}),
     SettingInfo::Enum("새로고침 주기", &CrossPointSettings::refreshFrequency,
                       {"1 페이지", "5 페이지", "10 페이지", "15 페이지", "30 페이지"}),

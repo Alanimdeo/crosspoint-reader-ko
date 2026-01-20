@@ -17,6 +17,259 @@ void ParsedText::addWord(std::string word, const EpdFontFamily::Style fontStyle)
   wordStyles.push_back(fontStyle);
 }
 
+// Helper function to split a UTF-8 string into individual characters
+static std::vector<std::string> splitUtf8Chars(const std::string& str) {
+  std::vector<std::string> chars;
+  const char* p = str.c_str();
+  while (*p) {
+    int charLen = 1;
+    const unsigned char c = static_cast<unsigned char>(*p);
+    if ((c & 0xF8) == 0xF0) {
+      charLen = 4;
+    } else if ((c & 0xF0) == 0xE0) {
+      charLen = 3;
+    } else if ((c & 0xE0) == 0xC0) {
+      charLen = 2;
+    }
+    chars.push_back(std::string(p, charLen));
+    p += charLen;
+  }
+  return chars;
+}
+
+// Character-wrap mode: greedy line filling with justified alignment (1.0x-1.5x spacing)
+// If spacing would exceed 1.5x, split words at character boundaries to fill the line
+void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
+                                     const int spaceWidth,
+                                     const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
+                                     const bool includeLastLine) {
+  const int pageWidth = viewportWidth;
+  // Spacing range: 1.0x to 1.5x of normal space width
+  const int minSpacing = spaceWidth;
+  const int maxSpacing = spaceWidth + (spaceWidth / 2);  // 1.5x
+
+  // Add paragraph indent to first word
+  if ((style == TextBlock::JUSTIFIED || style == TextBlock::LEFT_ALIGN) && !extraParagraphSpacing && !words.empty()) {
+    words.front().insert(0, "\xe3\x80\x80");  // U+3000 ideographic space
+  }
+
+  while (!words.empty()) {
+    std::vector<std::string> lineWordsVec;
+    std::vector<int> lineWordWidths;
+    std::vector<EpdFontFamily::Style> lineWordStylesVec;
+
+    // Phase 1: Greedily collect words/characters to fill the line
+    // Target: spacing should be between minSpacing and maxSpacing
+    int totalWordWidth = 0;
+
+    while (!words.empty()) {
+      const std::string& word = words.front();
+      const EpdFontFamily::Style wordStyle = wordStyles.front();
+      const int wordWidth = renderer.getTextWidth(fontId, word.c_str(), wordStyle);
+
+      // Calculate what spacing would be if we add this word
+      int newTotalWidth = totalWordWidth + wordWidth;
+      int newGapCount = lineWordsVec.size();  // gaps = word count (before adding new word)
+      int newSpareSpace = pageWidth - newTotalWidth;
+      int newSpacing = (newGapCount > 0) ? (newSpareSpace / newGapCount) : maxSpacing + 1;
+
+      if (lineWordsVec.empty()) {
+        // First word - must add something
+        if (wordWidth <= pageWidth) {
+          // Whole word fits
+          lineWordsVec.push_back(word);
+          lineWordWidths.push_back(wordWidth);
+          lineWordStylesVec.push_back(wordStyle);
+          totalWordWidth = wordWidth;
+          words.pop_front();
+          wordStyles.pop_front();
+        } else {
+          // Word too long - split it
+          auto chars = splitUtf8Chars(word);
+          std::string partial;
+          size_t charsFit = 0;
+          for (size_t i = 0; i < chars.size(); i++) {
+            std::string test = partial + chars[i];
+            int testWidth = renderer.getTextWidth(fontId, test.c_str(), wordStyle);
+            if (testWidth > pageWidth) break;
+            partial = test;
+            charsFit = i + 1;
+          }
+          if (charsFit == 0) {
+            charsFit = 1;
+            partial = chars[0];
+          }
+          int partialWidth = renderer.getTextWidth(fontId, partial.c_str(), wordStyle);
+          lineWordsVec.push_back(partial);
+          lineWordWidths.push_back(partialWidth);
+          lineWordStylesVec.push_back(wordStyle);
+          totalWordWidth = partialWidth;
+
+          if (charsFit < chars.size()) {
+            std::string remainder;
+            for (size_t i = charsFit; i < chars.size(); i++) remainder += chars[i];
+            words.front() = remainder;
+          } else {
+            words.pop_front();
+            wordStyles.pop_front();
+          }
+        }
+      } else if (newSpacing >= minSpacing) {
+        // Adding this word keeps spacing >= minSpacing - add it
+        lineWordsVec.push_back(word);
+        lineWordWidths.push_back(wordWidth);
+        lineWordStylesVec.push_back(wordStyle);
+        totalWordWidth = newTotalWidth;
+        words.pop_front();
+        wordStyles.pop_front();
+
+        // If spacing is now within range, we might be done with this line
+        if (newSpacing <= maxSpacing) {
+          // Perfect! But check if we can fit more
+          continue;
+        }
+      } else {
+        // Adding whole word would make spacing < minSpacing
+        // Try to add partial characters from this word
+        int currentGapCount = lineWordsVec.size();
+        // We want: (pageWidth - totalWordWidth - partialWidth) / currentGapCount >= minSpacing
+        // So: partialWidth <= pageWidth - totalWordWidth - currentGapCount * minSpacing
+        int maxPartialWidth = pageWidth - totalWordWidth - currentGapCount * minSpacing;
+
+        if (maxPartialWidth > 0) {
+          auto chars = splitUtf8Chars(word);
+          std::string partial;
+          size_t charsFit = 0;
+          for (size_t i = 0; i < chars.size(); i++) {
+            std::string test = partial + chars[i];
+            int testWidth = renderer.getTextWidth(fontId, test.c_str(), wordStyle);
+            if (testWidth > maxPartialWidth) break;
+            partial = test;
+            charsFit = i + 1;
+          }
+
+          if (charsFit > 0) {
+            int partialWidth = renderer.getTextWidth(fontId, partial.c_str(), wordStyle);
+            lineWordsVec.push_back(partial);
+            lineWordWidths.push_back(partialWidth);
+            lineWordStylesVec.push_back(wordStyle);
+            totalWordWidth += partialWidth;
+
+            if (charsFit < chars.size()) {
+              std::string remainder;
+              for (size_t i = charsFit; i < chars.size(); i++) remainder += chars[i];
+              words.front() = remainder;
+            } else {
+              words.pop_front();
+              wordStyles.pop_front();
+            }
+          }
+        }
+        // Line is full
+        break;
+      }
+    }
+
+    // Phase 2: Check if spacing is too large, fill with more characters
+    while (!words.empty() && lineWordsVec.size() >= 1) {
+      int gapCount = lineWordsVec.size();
+      int spareSpace = pageWidth - totalWordWidth;
+      int spacing = (gapCount > 0) ? (spareSpace / gapCount) : 0;
+
+      if (spacing <= maxSpacing) break;  // Spacing is acceptable
+
+      // Spacing too large - try to add characters from next word
+      const std::string& nextWord = words.front();
+      const EpdFontFamily::Style nextStyle = wordStyles.front();
+      auto chars = splitUtf8Chars(nextWord);
+
+      // Calculate max width for partial word to keep spacing <= maxSpacing
+      // (pageWidth - totalWordWidth - partialWidth) / gapCount <= maxSpacing
+      // partialWidth >= pageWidth - totalWordWidth - gapCount * maxSpacing
+      int minPartialWidth = pageWidth - totalWordWidth - gapCount * maxSpacing;
+      // Also ensure spacing >= minSpacing after adding
+      // (pageWidth - totalWordWidth - partialWidth) / gapCount >= minSpacing
+      // partialWidth <= pageWidth - totalWordWidth - gapCount * minSpacing
+      int maxPartialWidth = pageWidth - totalWordWidth - gapCount * minSpacing;
+
+      if (maxPartialWidth <= 0) break;  // Can't fit anything
+
+      std::string partial;
+      int partialWidth = 0;
+      size_t charsFit = 0;
+      for (size_t i = 0; i < chars.size(); i++) {
+        std::string test = partial + chars[i];
+        int testWidth = renderer.getTextWidth(fontId, test.c_str(), nextStyle);
+        if (testWidth > maxPartialWidth) break;
+        partial = test;
+        partialWidth = testWidth;
+        charsFit = i + 1;
+      }
+
+      if (charsFit == 0) break;  // Can't fit any character
+
+      // Add partial
+      lineWordsVec.push_back(partial);
+      lineWordWidths.push_back(partialWidth);
+      lineWordStylesVec.push_back(nextStyle);
+      totalWordWidth += partialWidth;
+
+      if (charsFit < chars.size()) {
+        std::string remainder;
+        for (size_t i = charsFit; i < chars.size(); i++) remainder += chars[i];
+        words.front() = remainder;
+      } else {
+        words.pop_front();
+        wordStyles.pop_front();
+      }
+    }
+
+    // Phase 3: Calculate final positions for justified alignment
+    bool isLastLine = words.empty();
+    int gapCount = lineWordsVec.size() - 1;
+    int spareSpace = pageWidth - totalWordWidth;
+
+    std::list<std::string> lineWords;
+    std::list<uint16_t> lineXPos;
+    std::list<EpdFontFamily::Style> lineWordStyles;
+
+    if (isLastLine || gapCount <= 0) {
+      // Last line or single word: left align with normal spacing
+      int xpos = 0;
+      for (size_t i = 0; i < lineWordsVec.size(); i++) {
+        lineXPos.push_back(static_cast<uint16_t>(xpos));
+        lineWords.push_back(lineWordsVec[i]);
+        lineWordStyles.push_back(lineWordStylesVec[i]);
+        xpos += lineWordWidths[i] + minSpacing;
+      }
+    } else {
+      // Justified: distribute spare space evenly across gaps
+      // Use fixed-point arithmetic for even distribution
+      int baseSpacing = spareSpace / gapCount;
+      int extraPixels = spareSpace % gapCount;  // Distribute these across first N gaps
+
+      int xpos = 0;
+      for (size_t i = 0; i < lineWordsVec.size(); i++) {
+        lineXPos.push_back(static_cast<uint16_t>(xpos));
+        lineWords.push_back(lineWordsVec[i]);
+        lineWordStyles.push_back(lineWordStylesVec[i]);
+
+        if (i < lineWordsVec.size() - 1) {
+          int gap = baseSpacing + (static_cast<int>(i) < extraPixels ? 1 : 0);
+          xpos += lineWordWidths[i] + gap;
+        }
+      }
+    }
+
+    // Process the line
+    if (!lineWords.empty() && (!isLastLine || includeLastLine)) {
+      TextBlock::Style lineStyle = isLastLine ? TextBlock::LEFT_ALIGN : TextBlock::JUSTIFIED;
+      processLine(std::make_shared<TextBlock>(std::move(lineWords), std::move(lineXPos),
+                                               std::move(lineWordStyles), lineStyle));
+    }
+  }
+}
+
 // Consumes data to minimize memory usage
 void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
                                        const std::function<void(std::shared_ptr<TextBlock>)>& processLine,
@@ -27,6 +280,14 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
 
   const int pageWidth = viewportWidth;
   const int spaceWidth = renderer.getSpaceWidth(fontId);
+
+  // Use character wrap mode for Korean text with justified alignment
+  if (characterWrap && style == TextBlock::JUSTIFIED) {
+    layoutCharacterWrap(renderer, fontId, viewportWidth, spaceWidth, processLine, includeLastLine);
+    return;
+  }
+
+  // Standard layout algorithm (Knuth-Plass)
   const auto wordWidths = calculateWordWidths(renderer, fontId);
   const auto lineBreakIndices = computeLineBreaks(pageWidth, spaceWidth, wordWidths);
   const size_t lineCount = includeLastLine ? lineBreakIndices.size() : lineBreakIndices.size() - 1;
@@ -174,10 +435,9 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
 
   // Pre-calculate X positions for words
   std::list<uint16_t> lineXPos;
-  for (size_t i = lastBreakAt; i < lineBreak; i++) {
-    const uint16_t currentWordWidth = wordWidths[i];
+  for (size_t i = 0; i < lineWordCount; i++) {
     lineXPos.push_back(xpos);
-    xpos += currentWordWidth + spacing;
+    xpos += wordWidths[lastBreakAt + i] + spacing;
   }
 
   // Iterators always start at the beginning as we are moving content with splice below

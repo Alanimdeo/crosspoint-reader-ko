@@ -137,6 +137,11 @@ void GfxRenderer::drawCenteredText(const int fontId, const int y, const char* te
 
 void GfxRenderer::drawText(const int fontId, const int x, const int y, const char* text, const bool black,
                            const EpdFontStyle style) const {
+  drawText(fontId, x, y, text, 0, black, style);
+}
+
+void GfxRenderer::drawText(const int fontId, const int x, const int y, const char* text, const int8_t letterSpacing,
+                           const bool black, const EpdFontStyle style) const {
   const int effectiveId = getEffectiveFontId(fontId);
   const int yPos = y + getFontAscenderSize(effectiveId);
   int xpos = x;
@@ -161,7 +166,21 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
   uint32_t cp;
   while ((cp = utf8NextCodepoint(reinterpret_cast<const uint8_t**>(&text)))) {
     renderChar(font, cp, &xpos, &yPos, black, style);
+    xpos += letterSpacing;  // Add extra spacing after each character
   }
+}
+
+int GfxRenderer::countUtf8Chars(const char* text) const {
+  if (text == nullptr) return 0;
+  int count = 0;
+  while (*text) {
+    // Skip continuation bytes (10xxxxxx)
+    if ((*text & 0xC0) != 0x80) {
+      count++;
+    }
+    text++;
+  }
+  return count;
 }
 
 void GfxRenderer::drawLine(int x1, int y1, int x2, int y2, const bool state) const {
