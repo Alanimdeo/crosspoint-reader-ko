@@ -185,6 +185,9 @@ void CategorySettingsActivity::render() const {
       valueText = settingsList[i].enumValues[value];
     } else if (settingsList[i].type == SettingType::VALUE && settingsList[i].valuePtr != nullptr) {
       valueText = std::to_string(SETTINGS.*(settingsList[i].valuePtr));
+    } else if (settingsList[i].type == SettingType::ACTION && strcmp(settingsList[i].name, "글꼴 설정") == 0) {
+      // Show current font name for font settings
+      valueText = SETTINGS.getCustomFontName();
     }
     if (!valueText.empty()) {
       const auto width = renderer.getTextWidth(UI_10_FONT_ID, valueText.c_str());
