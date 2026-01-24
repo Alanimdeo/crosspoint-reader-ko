@@ -33,6 +33,7 @@ class TxtReaderActivity final : public ActivityWithSubactivity {
   int cachedScreenMargin = 0;
   uint8_t cachedParagraphAlignment = CrossPointSettings::LEFT_ALIGN;
   uint8_t cachedCharacterWrap = 0;
+  float cachedLineCompression = 1.0f;
 
   static void taskTrampoline(void* param);
   [[noreturn]] void displayTaskLoop();

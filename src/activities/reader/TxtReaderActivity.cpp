@@ -18,7 +18,7 @@ constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
 
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
-constexpr uint8_t CACHE_VERSION = 3;          // Increment when cache format changes
+constexpr uint8_t CACHE_VERSION = 4;          // Increment when cache format changes (added lineCompression)
 
 // Find UTF-8 character boundary at or before pos
 size_t findUtf8Boundary(const std::string& str, size_t pos) {
@@ -213,6 +213,7 @@ void TxtReaderActivity::initializeReader() {
   cachedScreenMargin = SETTINGS.screenMargin;
   cachedParagraphAlignment = SETTINGS.paragraphAlignment;
   cachedCharacterWrap = SETTINGS.characterWrap;
+  cachedLineCompression = SETTINGS.getReaderLineCompression();
 
   // Calculate viewport dimensions
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
@@ -225,7 +226,7 @@ void TxtReaderActivity::initializeReader() {
 
   viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
   const int viewportHeight = renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom;
-  const int lineHeight = renderer.getLineHeight(cachedFontId);
+  const int lineHeight = renderer.getLineHeight(cachedFontId) * cachedLineCompression;
 
   Serial.printf("[%lu] [TRS] FontId: %d, lineHeight: %d, hasFont: %d\n", millis(), cachedFontId, lineHeight,
                 renderer.hasFont(cachedFontId) ? 1 : 0);
@@ -440,9 +441,11 @@ void TxtReaderActivity::renderScreen() {
     const int currentMargin = SETTINGS.screenMargin;
     const uint8_t currentAlignment = SETTINGS.paragraphAlignment;
     const uint8_t currentCharacterWrap = SETTINGS.characterWrap;
+    const float currentLineCompression = SETTINGS.getReaderLineCompression();
 
     if (currentFontId != cachedFontId || currentMargin != cachedScreenMargin ||
-        currentAlignment != cachedParagraphAlignment || currentCharacterWrap != cachedCharacterWrap) {
+        currentAlignment != cachedParagraphAlignment || currentCharacterWrap != cachedCharacterWrap ||
+        currentLineCompression != cachedLineCompression) {
       Serial.printf("[%lu] [TRS] Settings changed, reinitializing (font: %d->%d)\n", millis(), cachedFontId,
                     currentFontId);
       initialized = false;
@@ -497,7 +500,7 @@ void TxtReaderActivity::renderPage() {
   orientedMarginRight += cachedScreenMargin;
   orientedMarginBottom += statusBarMargin;
 
-  const int lineHeight = renderer.getLineHeight(cachedFontId);
+  const int lineHeight = renderer.getLineHeight(cachedFontId) * cachedLineCompression;
   const int contentWidth = viewportWidth;
 
   // Render text lines with alignment
@@ -735,6 +738,14 @@ bool TxtReaderActivity::loadPageIndexCache() {
     return false;
   }
 
+  float lineCompression;
+  serialization::readPod(f, lineCompression);
+  if (lineCompression != cachedLineCompression) {
+    Serial.printf("[%lu] [TRS] Cache line compression mismatch, rebuilding\n", millis());
+    f.close();
+    return false;
+  }
+
   uint32_t numPages;
   serialization::readPod(f, numPages);
 
@@ -772,6 +783,7 @@ void TxtReaderActivity::savePageIndexCache() const {
   serialization::writePod(f, static_cast<int32_t>(cachedScreenMargin));
   serialization::writePod(f, cachedParagraphAlignment);
   serialization::writePod(f, cachedCharacterWrap);
+  serialization::writePod(f, cachedLineCompression);
   serialization::writePod(f, static_cast<uint32_t>(pageOffsets.size()));
 
   // Write page offsets
