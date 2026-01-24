@@ -14,7 +14,7 @@ CrossPointSettings CrossPointSettings::instance;
 namespace {
 constexpr uint8_t SETTINGS_FILE_VERSION = 6;  // Incremented for paragraph indent support
 // Increment this when adding new persisted settings fields
-constexpr uint8_t SETTINGS_COUNT = 20;
+constexpr uint8_t SETTINGS_COUNT = 21;  // +1 for hyphenationEnabled
 constexpr char SETTINGS_FILE[] = "/.crosspoint/settings.bin";
 }  // namespace
 
@@ -49,6 +49,7 @@ bool CrossPointSettings::saveToFile() const {
   serialization::writeString(outputFile, std::string(customFontPath));
   serialization::writePod(outputFile, characterWrap);
   serialization::writePod(outputFile, paragraphIndent);
+  serialization::writePod(outputFile, hyphenationEnabled);
   outputFile.close();
 
   Serial.printf("[%lu] [CPS] Settings saved to file\n", millis());
@@ -170,6 +171,8 @@ bool CrossPointSettings::loadFromFile() {
       serialization::readPod(inputFile, paragraphIndent);
       if (++settingsRead >= fileSettingsCount) break;
     }
+    serialization::readPod(inputFile, hyphenationEnabled);
+    if (++settingsRead >= fileSettingsCount) break;
   } while (false);
 
   inputFile.close();

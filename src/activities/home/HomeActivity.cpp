@@ -23,7 +23,7 @@ void HomeActivity::taskTrampoline(void* param) {
 }
 
 int HomeActivity::getMenuItemCount() const {
-  int count = 3;  // Browse files, File transfer, Settings
+  int count = 3;  // My Library, File transfer, Settings
   if (hasContinueReading) count++;
   if (hasOpdsUrl) count++;
   return count;
@@ -187,15 +187,15 @@ void HomeActivity::loop() {
     // Calculate dynamic indices based on which options are available
     int idx = 0;
     const int continueIdx = hasContinueReading ? idx++ : -1;
-    const int browseFilesIdx = idx++;
+    const int myLibraryIdx = idx++;
     const int opdsLibraryIdx = hasOpdsUrl ? idx++ : -1;
     const int fileTransferIdx = idx++;
     const int settingsIdx = idx;
 
     if (selectorIndex == continueIdx) {
       onContinueReading();
-    } else if (selectorIndex == browseFilesIdx) {
-      onReaderOpen();
+    } else if (selectorIndex == myLibraryIdx) {
+      onMyLibraryOpen();
     } else if (selectorIndex == opdsLibraryIdx) {
       onOpdsBrowserOpen();
     } else if (selectorIndex == fileTransferIdx) {
@@ -343,6 +343,10 @@ void HomeActivity::render() {
   }
 
   if (hasContinueReading) {
+    // Invert text colors based on selection state:
+    // - With cover: selected = white text on black box, unselected = black text on white box
+    // - Without cover: selected = white text on black card, unselected = black text on white card
+
     // Split into words (avoid stringstream to keep this light on the MCU)
     std::vector<std::string> words;
     words.reserve(8);
@@ -425,7 +429,7 @@ void HomeActivity::render() {
     // Vertically center the title block within the card
     int titleYStart = bookY + (bookHeight - totalTextHeight) / 2;
 
-    // If cover image was rendered, draw white box behind title and author
+    // If cover image was rendered, draw box behind title and author
     if (coverRendered) {
       constexpr int boxPadding = 8;
       // Calculate the max text width for the box
@@ -456,14 +460,14 @@ void HomeActivity::render() {
       const int boxX = (pageWidth - boxWidth) / 2;
       const int boxY = titleYStart - boxPadding;
 
-      // Draw white filled box
-      renderer.fillRect(boxX, boxY, boxWidth, boxHeight, false);
-      // Draw black border around the box
-      renderer.drawRect(boxX, boxY, boxWidth, boxHeight, true);
+      // Draw box (inverted when selected: black box instead of white)
+      renderer.fillRect(boxX, boxY, boxWidth, boxHeight, bookSelected);
+      // Draw border around the box (inverted when selected: white border instead of black)
+      renderer.drawRect(boxX, boxY, boxWidth, boxHeight, !bookSelected);
     }
 
     for (const auto& line : lines) {
-      renderer.drawCenteredText(UI_12_FONT_ID, titleYStart, line.c_str(), !bookSelected || coverRendered);
+      renderer.drawCenteredText(UI_12_FONT_ID, titleYStart, line.c_str(), !bookSelected);
       titleYStart += renderer.getLineHeight(UI_12_FONT_ID);
     }
 
@@ -484,13 +488,13 @@ void HomeActivity::render() {
         }
         trimmedAuthor.append("...");
       }
-      renderer.drawCenteredText(UI_10_FONT_ID, titleYStart, trimmedAuthor.c_str(), !bookSelected || coverRendered);
+      renderer.drawCenteredText(UI_10_FONT_ID, titleYStart, trimmedAuthor.c_str(), !bookSelected);
     }
 
     // "Continue Reading" label at the bottom
     const int continueY = bookY + bookHeight - renderer.getLineHeight(UI_10_FONT_ID) * 3 / 2;
     if (coverRendered) {
-      // Draw white box behind "읽기 계속" text
+      // Draw box behind "읽기 계속" text (inverted when selected: black box instead of white)
       const char* continueText = "읽기 계속";
       const int continueTextWidth = renderer.getTextWidth(UI_10_FONT_ID, continueText);
       constexpr int continuePadding = 6;
@@ -498,9 +502,9 @@ void HomeActivity::render() {
       const int continueBoxHeight = renderer.getLineHeight(UI_10_FONT_ID) + continuePadding;
       const int continueBoxX = (pageWidth - continueBoxWidth) / 2;
       const int continueBoxY = continueY - continuePadding / 2;
-      renderer.fillRect(continueBoxX, continueBoxY, continueBoxWidth, continueBoxHeight, false);
-      renderer.drawRect(continueBoxX, continueBoxY, continueBoxWidth, continueBoxHeight, true);
-      renderer.drawCenteredText(UI_10_FONT_ID, continueY, continueText, true);
+      renderer.fillRect(continueBoxX, continueBoxY, continueBoxWidth, continueBoxHeight, bookSelected);
+      renderer.drawRect(continueBoxX, continueBoxY, continueBoxWidth, continueBoxHeight, !bookSelected);
+      renderer.drawCenteredText(UI_10_FONT_ID, continueY, continueText, !bookSelected);
     } else {
       renderer.drawCenteredText(UI_10_FONT_ID, continueY, "읽기 계속", !bookSelected);
     }
@@ -518,7 +522,7 @@ void HomeActivity::render() {
   // Build menu items dynamically
   std::vector<const char*> menuItems = {"파일 탐색기", "파일 전송", "설정"};
   if (hasOpdsUrl) {
-    // Insert Calibre Library after Browse Files
+    // Insert Calibre Library after My Library
     menuItems.insert(menuItems.begin() + 1, "Calibre Library");
   }
 
@@ -557,7 +561,6 @@ void HomeActivity::render() {
     renderer.drawText(UI_10_FONT_ID, textX, textY, label, !selected);
   }
 
-  // const auto labels = mappedInput.mapLabels("", "Confirm", "Up", "Down");
   const auto labels = mappedInput.mapLabels("", "확인", "위", "아래");
   renderer.drawButtonHints(UI_10_FONT_ID, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 

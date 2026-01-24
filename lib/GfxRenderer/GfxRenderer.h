@@ -96,7 +96,7 @@ class GfxRenderer {
   std::string truncatedText(int fontId, const char* text, int maxWidth, EpdFontStyle style = REGULAR) const;
 
   // UI Components
-  void drawButtonHints(int fontId, const char* btn1, const char* btn2, const char* btn3, const char* btn4) const;
+  void drawButtonHints(int fontId, const char* btn1, const char* btn2, const char* btn3, const char* btn4);
   void drawSideButtonHints(int fontId, const char* topBtn, const char* bottomBtn) const;
 
  private:
