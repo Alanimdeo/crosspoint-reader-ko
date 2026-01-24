@@ -47,9 +47,9 @@ Activity* currentActivity;
 EpdFont pretendard10RegularFont(&pretendard_10_regular);
 EpdFontFamily uiFontFamily(&pretendard10RegularFont);
 
-// Korean EPUB reader font (Eulyoo 14pt) - Regular only, synthetic bold applied by renderer
-EpdFont eulyoo14RegularFont(&eulyoo_14_regular);
-EpdFontFamily eulyoo14FontFamily(&eulyoo14RegularFont);
+// Korean EPUB reader font (KoPub Batang 14pt) - Regular only, synthetic bold applied by renderer
+EpdFont kopub14RegularFont(&kopub_14_regular);
+EpdFontFamily kopub14FontFamily(&kopub14RegularFont);
 
 // Korean fonts loading from SD card is disabled due to memory constraints
 // Font files should be in /.crosspoint/fonts/ directory
@@ -102,7 +102,7 @@ enum SdFontIndex {
 // Returns true if custom font was loaded successfully
 bool loadCustomReaderFont(GfxRenderer& gfxRenderer) {
   if (!SETTINGS.hasCustomFont()) {
-    Serial.printf("[%lu] [FNT] No custom font configured, using default Eulyoo\n", millis());
+    Serial.printf("[%lu] [FNT] No custom font configured, using default KoPub Batang\n", millis());
     return false;
   }
 
@@ -272,8 +272,8 @@ void setupDisplayAndFonts() {
   renderer.insertFont(UI_12_FONT_ID, &uiFontFamily);
   renderer.insertFont(SMALL_FONT_ID, &uiFontFamily);
 
-  // Korean EPUB reader font (Eulyoo 14pt) - always register as fallback
-  renderer.insertFont(EULYOO_14_FONT_ID, &eulyoo14FontFamily);
+  // Korean EPUB reader font (KoPub Batang 14pt) - always register as fallback
+  renderer.insertFont(KOPUB_14_FONT_ID, &kopub14FontFamily);
 
   // Try to load custom reader font from SD card
   loadCustomReaderFont(renderer);

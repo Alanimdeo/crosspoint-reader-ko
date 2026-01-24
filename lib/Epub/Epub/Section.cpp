@@ -7,10 +7,10 @@
 #include "parsers/ChapterHtmlSlimParser.h"
 
 namespace {
-constexpr uint8_t SECTION_FILE_VERSION = 17;
-constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(uint8_t) +
-                                 sizeof(bool) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(uint16_t) +
-                                 sizeof(uint32_t);
+constexpr uint8_t SECTION_FILE_VERSION = 18;  // Incremented for paragraph indent support
+constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(bool) +
+                                 sizeof(uint8_t) + sizeof(bool) + sizeof(uint16_t) + sizeof(uint16_t) +
+                                 sizeof(uint16_t) + sizeof(uint32_t);
 }  // namespace
 
 uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
@@ -31,21 +31,23 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
 }
 
 void Section::writeSectionFileHeader(const int fontId, const float lineCompression, const bool extraParagraphSpacing,
-                                     const uint8_t paragraphAlignment, const bool characterWrap,
-                                     const uint16_t viewportWidth, const uint16_t viewportHeight) {
+                                     const bool paragraphIndent, const uint8_t paragraphAlignment,
+                                     const bool characterWrap, const uint16_t viewportWidth,
+                                     const uint16_t viewportHeight) {
   if (!file) {
     Serial.printf("[%lu] [SCT] File not open for writing header\n", millis());
     return;
   }
   static_assert(HEADER_SIZE == sizeof(SECTION_FILE_VERSION) + sizeof(fontId) + sizeof(lineCompression) +
-                                   sizeof(extraParagraphSpacing) + sizeof(paragraphAlignment) + sizeof(characterWrap) +
-                                   sizeof(viewportWidth) + sizeof(viewportHeight) + sizeof(pageCount) +
-                                   sizeof(uint32_t),
+                                   sizeof(extraParagraphSpacing) + sizeof(paragraphIndent) + sizeof(paragraphAlignment) +
+                                   sizeof(characterWrap) + sizeof(viewportWidth) + sizeof(viewportHeight) +
+                                   sizeof(pageCount) + sizeof(uint32_t),
                 "Header size mismatch");
   serialization::writePod(file, SECTION_FILE_VERSION);
   serialization::writePod(file, fontId);
   serialization::writePod(file, lineCompression);
   serialization::writePod(file, extraParagraphSpacing);
+  serialization::writePod(file, paragraphIndent);
   serialization::writePod(file, paragraphAlignment);
   serialization::writePod(file, characterWrap);
   serialization::writePod(file, viewportWidth);
@@ -55,8 +57,8 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
 }
 
 bool Section::loadSectionFile(const int fontId, const float lineCompression, const bool extraParagraphSpacing,
-                              const uint8_t paragraphAlignment, const bool characterWrap, const uint16_t viewportWidth,
-                              const uint16_t viewportHeight) {
+                              const bool paragraphIndent, const uint8_t paragraphAlignment, const bool characterWrap,
+                              const uint16_t viewportWidth, const uint16_t viewportHeight) {
   if (!SdMan.openFileForRead("SCT", filePath, file)) {
     return false;
   }
@@ -76,11 +78,13 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     uint16_t fileViewportWidth, fileViewportHeight;
     float fileLineCompression;
     bool fileExtraParagraphSpacing;
+    bool fileParagraphIndent;
     uint8_t fileParagraphAlignment;
     bool fileCharacterWrap;
     serialization::readPod(file, fileFontId);
     serialization::readPod(file, fileLineCompression);
     serialization::readPod(file, fileExtraParagraphSpacing);
+    serialization::readPod(file, fileParagraphIndent);
     serialization::readPod(file, fileParagraphAlignment);
     serialization::readPod(file, fileCharacterWrap);
     serialization::readPod(file, fileViewportWidth);
@@ -90,9 +94,9 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
                   fileFontId, viewportWidth, viewportHeight, fileViewportWidth, fileViewportHeight);
 
     if (fontId != fileFontId || lineCompression != fileLineCompression ||
-        extraParagraphSpacing != fileExtraParagraphSpacing || paragraphAlignment != fileParagraphAlignment ||
-        characterWrap != fileCharacterWrap || viewportWidth != fileViewportWidth ||
-        viewportHeight != fileViewportHeight) {
+        extraParagraphSpacing != fileExtraParagraphSpacing || paragraphIndent != fileParagraphIndent ||
+        paragraphAlignment != fileParagraphAlignment || characterWrap != fileCharacterWrap ||
+        viewportWidth != fileViewportWidth || viewportHeight != fileViewportHeight) {
       file.close();
       Serial.printf("[%lu] [SCT] Deserialization failed: Parameters do not match\n", millis());
       clearCache();
@@ -123,7 +127,7 @@ bool Section::clearCache() const {
 }
 
 bool Section::createSectionFile(const int fontId, const float lineCompression, const bool extraParagraphSpacing,
-                                const uint8_t paragraphAlignment, const bool characterWrap,
+                                const bool paragraphIndent, const uint8_t paragraphAlignment, const bool characterWrap,
                                 const uint16_t viewportWidth, const uint16_t viewportHeight,
                                 const std::function<void()>& progressSetupFn,
                                 const std::function<void(int)>& progressFn) {
@@ -181,13 +185,13 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   if (!SdMan.openFileForWrite("SCT", filePath, file)) {
     return false;
   }
-  writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, characterWrap,
-                         viewportWidth, viewportHeight);
+  writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, paragraphIndent, paragraphAlignment,
+                         characterWrap, viewportWidth, viewportHeight);
   std::vector<uint32_t> lut = {};
 
   ChapterHtmlSlimParser visitor(
-      tmpHtmlPath, renderer, fontId, lineCompression, extraParagraphSpacing, paragraphAlignment, characterWrap,
-      viewportWidth, viewportHeight,
+      tmpHtmlPath, renderer, fontId, lineCompression, extraParagraphSpacing, paragraphIndent, paragraphAlignment,
+      characterWrap, viewportWidth, viewportHeight,
       [this, &lut](std::unique_ptr<Page> page) { lut.emplace_back(this->onPageComplete(std::move(page))); },
       progressFn);
   success = visitor.parseAndBuildPages();

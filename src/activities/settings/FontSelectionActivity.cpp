@@ -12,7 +12,7 @@
 #include "fontIds.h"
 
 namespace {
-constexpr const char* DEFAULT_FONT_NAME = "을유1945 (기본)";
+constexpr const char* DEFAULT_FONT_NAME = "KoPub 바탕 (기본)";
 constexpr const char* CACHE_DIR = "/.crosspoint/cache";
 
 // Recursively delete a directory and its contents

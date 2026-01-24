@@ -16,7 +16,7 @@ class ParsedText {
   std::list<std::string> words;
   std::list<EpdFontFamily::Style> wordStyles;
   TextBlock::Style style;
-  bool extraParagraphSpacing;
+  bool paragraphIndent;
   bool characterWrap;
 
   std::vector<size_t> computeLineBreaks(int pageWidth, int spaceWidth, const std::vector<uint16_t>& wordWidths) const;
@@ -28,8 +28,8 @@ class ParsedText {
                            const std::function<void(std::shared_ptr<TextBlock>)>& processLine, bool includeLastLine);
 
  public:
-  explicit ParsedText(const TextBlock::Style style, const bool extraParagraphSpacing, const bool characterWrap = false)
-      : style(style), extraParagraphSpacing(extraParagraphSpacing), characterWrap(characterWrap) {}
+  explicit ParsedText(const TextBlock::Style style, const bool paragraphIndent, const bool characterWrap = false)
+      : style(style), paragraphIndent(paragraphIndent), characterWrap(characterWrap) {}
   ~ParsedText() = default;
 
   void addWord(std::string word, EpdFontFamily::Style fontStyle);

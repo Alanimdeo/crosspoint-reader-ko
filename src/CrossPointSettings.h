@@ -59,6 +59,7 @@ class CrossPointSettings {
   uint8_t statusBar = FULL;
   // Text rendering settings
   uint8_t extraParagraphSpacing = 1;
+  uint8_t paragraphIndent = 0;  // First-line indent (independent of paragraph spacing)
   uint8_t textAntiAliasing = 1;
   // Short power button click behaviour
   uint8_t shortPwrBtn = IGNORE;
@@ -82,7 +83,7 @@ class CrossPointSettings {
   uint8_t hideBatteryPercentage = HIDE_NEVER;
   // Long-press chapter skip on side buttons
   uint8_t longPressChapterSkip = 1;
-  // Custom reader font path (empty means use default Eulyoo font)
+  // Custom reader font path (empty means use default KoPub Batang font)
   char customFontPath[64] = "";
   // Character-level line wrapping for Korean text (breaks at any character, not just spaces)
   uint8_t characterWrap = 0;

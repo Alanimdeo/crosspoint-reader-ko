@@ -7,8 +7,8 @@
 #define UI_10_FONT_ID UI_FONT_ID
 #define UI_12_FONT_ID UI_FONT_ID
 
-// Korean EPUB reader font (Eulyoo 14pt)
-#define EULYOO_14_FONT_ID (-1446433083)
+// Korean EPUB reader font (KoPub Batang 14pt)
+#define KOPUB_14_FONT_ID (-1446433084)
 
 // Custom reader font loaded from SD card
 #define CUSTOM_FONT_ID (-999999)

@@ -49,7 +49,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
   const int maxSpacing = spaceWidth + (spaceWidth / 2);  // 1.5x
 
   // Add paragraph indent to first word
-  if ((style == TextBlock::JUSTIFIED || style == TextBlock::LEFT_ALIGN) && !extraParagraphSpacing && !words.empty()) {
+  if ((style == TextBlock::JUSTIFIED || style == TextBlock::LEFT_ALIGN) && paragraphIndent && !words.empty()) {
     words.front().insert(0, "\xe3\x80\x80");  // U+3000 ideographic space
   }
 
@@ -305,7 +305,7 @@ std::vector<uint16_t> ParsedText::calculateWordWidths(const GfxRenderer& rendere
 
   // add ideographic space (U+3000) at the beginning of first word in paragraph to indent
   // Note: Using U+3000 instead of EM-SPACE (U+2003) for Korean font compatibility
-  if ((style == TextBlock::JUSTIFIED || style == TextBlock::LEFT_ALIGN) && !extraParagraphSpacing) {
+  if ((style == TextBlock::JUSTIFIED || style == TextBlock::LEFT_ALIGN) && paragraphIndent) {
     std::string& first_word = words.front();
     first_word.insert(0, "\xe3\x80\x80");
   }

@@ -12,9 +12,9 @@
 CrossPointSettings CrossPointSettings::instance;
 
 namespace {
-constexpr uint8_t SETTINGS_FILE_VERSION = 5;  // Incremented for character wrap support
+constexpr uint8_t SETTINGS_FILE_VERSION = 6;  // Incremented for paragraph indent support
 // Increment this when adding new persisted settings fields
-constexpr uint8_t SETTINGS_COUNT = 19;
+constexpr uint8_t SETTINGS_COUNT = 20;
 constexpr char SETTINGS_FILE[] = "/.crosspoint/settings.bin";
 }  // namespace
 
@@ -48,6 +48,7 @@ bool CrossPointSettings::saveToFile() const {
   serialization::writePod(outputFile, longPressChapterSkip);
   serialization::writeString(outputFile, std::string(customFontPath));
   serialization::writePod(outputFile, characterWrap);
+  serialization::writePod(outputFile, paragraphIndent);
   outputFile.close();
 
   Serial.printf("[%lu] [CPS] Settings saved to file\n", millis());
@@ -72,8 +73,8 @@ bool CrossPointSettings::loadFromFile() {
   uint8_t version;
   serialization::readPod(inputFile, version);
 
-  // Handle different versions - accept version 1, 2, 3, 4, 5
-  if (version < 1 || version > 5) {
+  // Handle different versions - accept version 1, 2, 3, 4, 5, 6
+  if (version < 1 || version > 6) {
     Serial.printf("[%lu] [CPS] Deserialization failed: Unknown version %u, deleting settings file\n", millis(), version);
     inputFile.close();
     SdMan.remove(SETTINGS_FILE);
@@ -164,6 +165,11 @@ bool CrossPointSettings::loadFromFile() {
       serialization::readPod(inputFile, characterWrap);
       if (++settingsRead >= fileSettingsCount) break;
     }
+    // Version 6+: Paragraph indent
+    if (version >= 6) {
+      serialization::readPod(inputFile, paragraphIndent);
+      if (++settingsRead >= fileSettingsCount) break;
+    }
   } while (false);
 
   inputFile.close();
@@ -172,7 +178,7 @@ bool CrossPointSettings::loadFromFile() {
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
-  // Fixed to Eulyoo 14pt font
+  // Fixed to KoPub Batang 14pt font
   switch (lineSpacing) {
     case TIGHT:
       return 1.00f;
@@ -230,8 +236,8 @@ int CrossPointSettings::getReaderFontId() const {
     // Mask to ensure it stays in valid range
     return -static_cast<int>((hash & 0x7FFFFFFF) | 1);
   }
-  // Default to Eulyoo 14pt for Korean reader
-  return EULYOO_14_FONT_ID;
+  // Default to KoPub Batang 14pt for Korean reader
+  return KOPUB_14_FONT_ID;
 }
 
 int CrossPointSettings::getUiFontId() const {
@@ -241,7 +247,7 @@ int CrossPointSettings::getUiFontId() const {
 
 const char* CrossPointSettings::getCustomFontName() const {
   if (!hasCustomFont()) {
-    return "을유1945 (기본)";
+    return "KoPub 바탕 (기본)";
   }
   // Extract filename from path (e.g., "/.crosspoint/fonts/MyFont.bin" -> "MyFont")
   const char* lastSlash = strrchr(customFontPath, '/');
