@@ -10,8 +10,8 @@
 namespace {
 constexpr uint8_t SECTION_FILE_VERSION = 19;  // Incremented for paragraph indent + hyphenation support
 constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(bool) +
-                                 sizeof(uint8_t) + sizeof(bool) + sizeof(uint16_t) + sizeof(uint16_t) +
-                                 sizeof(bool) + sizeof(uint16_t) + sizeof(uint32_t);
+                                 sizeof(uint8_t) + sizeof(bool) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) +
+                                 sizeof(uint16_t) + sizeof(uint32_t);
 }  // namespace
 
 uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
@@ -40,9 +40,10 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
     return;
   }
   static_assert(HEADER_SIZE == sizeof(SECTION_FILE_VERSION) + sizeof(fontId) + sizeof(lineCompression) +
-                                   sizeof(extraParagraphSpacing) + sizeof(paragraphIndent) + sizeof(paragraphAlignment) +
-                                   sizeof(characterWrap) + sizeof(viewportWidth) + sizeof(viewportHeight) +
-                                   sizeof(hyphenationEnabled) + sizeof(pageCount) + sizeof(uint32_t),
+                                   sizeof(extraParagraphSpacing) + sizeof(paragraphIndent) +
+                                   sizeof(paragraphAlignment) + sizeof(characterWrap) + sizeof(viewportWidth) +
+                                   sizeof(viewportHeight) + sizeof(hyphenationEnabled) + sizeof(pageCount) +
+                                   sizeof(uint32_t),
                 "Header size mismatch");
   serialization::writePod(file, SECTION_FILE_VERSION);
   serialization::writePod(file, fontId);

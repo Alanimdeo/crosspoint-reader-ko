@@ -341,8 +341,8 @@ void EpubReaderActivity::renderScreen() {
 
       if (!section->createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
                                       SETTINGS.extraParagraphSpacing, SETTINGS.paragraphIndent,
-                                      SETTINGS.paragraphAlignment, SETTINGS.characterWrap, viewportWidth, viewportHeight,
-                                      SETTINGS.hyphenationEnabled, progressSetup, progressCallback)) {
+                                      SETTINGS.paragraphAlignment, SETTINGS.characterWrap, viewportWidth,
+                                      viewportHeight, SETTINGS.hyphenationEnabled, progressSetup, progressCallback)) {
         Serial.printf("[%lu] [ERS] Failed to persist page data to SD\n", millis());
         section.reset();
         return;

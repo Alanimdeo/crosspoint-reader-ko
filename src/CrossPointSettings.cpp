@@ -76,7 +76,8 @@ bool CrossPointSettings::loadFromFile() {
 
   // Handle different versions - accept version 1, 2, 3, 4, 5, 6
   if (version < 1 || version > 6) {
-    Serial.printf("[%lu] [CPS] Deserialization failed: Unknown version %u, deleting settings file\n", millis(), version);
+    Serial.printf("[%lu] [CPS] Deserialization failed: Unknown version %u, deleting settings file\n", millis(),
+                  version);
     inputFile.close();
     SdMan.remove(SETTINGS_FILE);
     return false;
