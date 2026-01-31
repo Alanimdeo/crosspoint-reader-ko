@@ -852,7 +852,7 @@ bool GfxRenderer::copyStoredBwBuffer() {
     }
   }
 
-  uint8_t* frameBuffer = einkDisplay.getFrameBuffer();
+  uint8_t* frameBuffer = display.getFrameBuffer();
   if (!frameBuffer) {
     return false;
   }

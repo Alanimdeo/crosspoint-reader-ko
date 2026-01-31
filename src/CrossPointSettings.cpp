@@ -143,7 +143,7 @@ bool CrossPointSettings::loadFromFile() {
       if (++settingsRead >= fileSettingsCount) break;
     }
 
-    readAndValidate(inputFile, paragraphAlignment, PARAGRAPH_ALIGNMENT_COUNT)
+    readAndValidate(inputFile, paragraphAlignment, PARAGRAPH_ALIGNMENT_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, sleepTimeout, SLEEP_TIMEOUT_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
