@@ -355,8 +355,8 @@ void WifiSelectionActivity::loop() {
         updateRequired = true;
       }
     } else if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-      if (forgetPromptSelection == 0) {
-        // User chose "Yes" - forget the network
+      if (forgetPromptSelection == 1) {
+        // User chose "Forget network" - forget the network
         xSemaphoreTake(renderingMutex, portMAX_DELAY);
         WIFI_STORE.removeCredential(selectedSSID);
         xSemaphoreGive(renderingMutex);
@@ -367,7 +367,7 @@ void WifiSelectionActivity::loop() {
           network->hasSavedPassword = false;
         }
       }
-      // Go back to network list
+      // Go back to network list (whether Cancel or Forget network was selected)
       state = WifiSelectionState::NETWORK_LIST;
       updateRequired = true;
     } else if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
@@ -392,7 +392,7 @@ void WifiSelectionActivity::loop() {
       // If we used saved credentials, offer to forget the network
       if (usedSavedPassword) {
         state = WifiSelectionState::FORGET_PROMPT;
-        forgetPromptSelection = 0;  // Default to "Yes"
+        forgetPromptSelection = 0;  // Default to "Cancel"
       } else {
         // Go back to network list on failure
         state = WifiSelectionState::NETWORK_LIST;
@@ -630,8 +630,9 @@ void WifiSelectionActivity::renderConnected() const {
   const std::string ipInfo = "IP Address: " + connectedIP;
   renderer.drawCenteredText(UI_10_FONT_ID, top + 40, ipInfo.c_str());
 
-  // renderer.drawCenteredText(SMALL_FONT_ID, pageHeight - 30, "Press any button to continue");
-  renderer.drawCenteredText(SMALL_FONT_ID, pageHeight - 30, "아무 버튼이나 눌러 계속하세요");
+  // Use centralized button hints (Korean)
+  const auto labels = mappedInput.mapLabels("", "계속", "", "");
+  renderer.drawButtonHints(UI_10_FONT_ID, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 
 void WifiSelectionActivity::renderSavePrompt() const {
@@ -677,8 +678,9 @@ void WifiSelectionActivity::renderSavePrompt() const {
     renderer.drawText(UI_10_FONT_ID, startX + buttonWidth + buttonSpacing + 4, buttonY, "아니요");
   }
 
-  // renderer.drawCenteredText(SMALL_FONT_ID, pageHeight - 30, "LEFT/RIGHT: Select | OK: Confirm");
-  renderer.drawCenteredText(SMALL_FONT_ID, pageHeight - 30, "왼쪽/오른쪽: 선택 | 확인: 확인");
+  // Use centralized button hints (Korean)
+  const auto labels = mappedInput.mapLabels("« 건너뛰기", "선택", "왼쪽", "오른쪽");
+  renderer.drawButtonHints(UI_10_FONT_ID, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 
 void WifiSelectionActivity::renderConnectionFailed() const {
@@ -689,8 +691,9 @@ void WifiSelectionActivity::renderConnectionFailed() const {
   // renderer.drawCenteredText(UI_12_FONT_ID, top - 20, "Connection Failed", true, EpdFontFamily::BOLD);
   renderer.drawCenteredText(UI_12_FONT_ID, top - 20, "연결 실패", true, EpdFontFamily::BOLD);
   renderer.drawCenteredText(UI_10_FONT_ID, top + 20, connectionError.c_str());
-  // renderer.drawCenteredText(SMALL_FONT_ID, pageHeight - 30, "Press any button to continue");
-  renderer.drawCenteredText(SMALL_FONT_ID, pageHeight - 30, "아무 버튼이나 눌러 계속하세요");
+  // Use centralized button hints (Korean)
+  const auto labels = mappedInput.mapLabels("« 뒤로", "계속", "", "");
+  renderer.drawButtonHints(UI_10_FONT_ID, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 
 void WifiSelectionActivity::renderForgetPrompt() const {
@@ -711,31 +714,28 @@ void WifiSelectionActivity::renderForgetPrompt() const {
   // renderer.drawCenteredText(UI_10_FONT_ID, top + 40, "Remove saved password?");
   renderer.drawCenteredText(UI_10_FONT_ID, top + 40, "저장된 비밀번호를 삭제하시겠습니까?");
 
-  // Draw Yes/No buttons
+  // Draw Cancel/Forget network buttons
   const int buttonY = top + 80;
-  constexpr int buttonWidth = 60;
+  constexpr int buttonWidth = 120;
   constexpr int buttonSpacing = 30;
   constexpr int totalWidth = buttonWidth * 2 + buttonSpacing;
   const int startX = (pageWidth - totalWidth) / 2;
 
-  // Draw "Yes" button
+  // Draw "Cancel" button (Korean)
   if (forgetPromptSelection == 0) {
-    // renderer.drawText(UI_10_FONT_ID, startX, buttonY, "[Yes]");
-    renderer.drawText(UI_10_FONT_ID, startX, buttonY, "[예]");
+    renderer.drawText(UI_10_FONT_ID, startX, buttonY, "[취소]");
   } else {
-    // renderer.drawText(UI_10_FONT_ID, startX + 4, buttonY, "Yes");
-    renderer.drawText(UI_10_FONT_ID, startX + 4, buttonY, "예");
+    renderer.drawText(UI_10_FONT_ID, startX + 4, buttonY, "취소");
   }
 
-  // Draw "No" button
+  // Draw "Forget network" button (Korean)
   if (forgetPromptSelection == 1) {
-    // renderer.drawText(UI_10_FONT_ID, startX + buttonWidth + buttonSpacing, buttonY, "[No]");
-    renderer.drawText(UI_10_FONT_ID, startX + buttonWidth + buttonSpacing, buttonY, "[아니요]");
+    renderer.drawText(UI_10_FONT_ID, startX + buttonWidth + buttonSpacing, buttonY, "[네트워크 삭제]");
   } else {
-    // renderer.drawText(UI_10_FONT_ID, startX + buttonWidth + buttonSpacing + 4, buttonY, "No");
-    renderer.drawText(UI_10_FONT_ID, startX + buttonWidth + buttonSpacing + 4, buttonY, "아니요");
+    renderer.drawText(UI_10_FONT_ID, startX + buttonWidth + buttonSpacing + 4, buttonY, "네트워크 삭제");
   }
 
-  // renderer.drawCenteredText(SMALL_FONT_ID, pageHeight - 30, "LEFT/RIGHT: Select | OK: Confirm");
-  renderer.drawCenteredText(SMALL_FONT_ID, pageHeight - 30, "왼쪽/오른쪽: 선택 | 확인: 확인");
+  // Use centralized button hints (Korean)
+  const auto labels = mappedInput.mapLabels("« 뒤로", "선택", "왼쪽", "오른쪽");
+  renderer.drawButtonHints(UI_10_FONT_ID, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }

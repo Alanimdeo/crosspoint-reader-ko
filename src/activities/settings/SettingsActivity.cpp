@@ -12,13 +12,16 @@
 const char* SettingsActivity::categoryNames[categoryCount] = {"디스플레이", "리더", "컨트롤", "시스템"};
 
 namespace {
-constexpr int displaySettingsCount = 5;
+constexpr int displaySettingsCount = 6;
 const SettingInfo displaySettings[displaySettingsCount] = {
-    // Should match with SLEEP_SCREEN_MODE
+    // Should match with SLEEP_SCREEN_MODE (Korean)
     SettingInfo::Enum("절전 화면 이미지", &CrossPointSettings::sleepScreen,
                       {"다크", "라이트", "사용자 정의", "커버", "없음"}),
     SettingInfo::Enum("절전 화면 커버 모드", &CrossPointSettings::sleepScreenCoverMode, {"맞춤", "자르기"}),
-    SettingInfo::Enum("상태 표시줄", &CrossPointSettings::statusBar, {"없음", "진행 없음", "전체"}),
+    SettingInfo::Enum("절전 화면 커버 필터", &CrossPointSettings::sleepScreenCoverFilter,
+                      {"없음", "대비", "반전"}),
+    SettingInfo::Enum("상태 표시줄", &CrossPointSettings::statusBar,
+                      {"없음", "진행 없음", "전체 w/ %", "전체 w/ 진행바", "진행바만"}),
     SettingInfo::Enum("배터리 % 숨기기", &CrossPointSettings::hideBatteryPercentage, {"안 함", "리더에서", "항상"}),
     SettingInfo::Enum("새로고침 주기", &CrossPointSettings::refreshFrequency,
                       {"1 페이지", "5 페이지", "10 페이지", "15 페이지", "30 페이지"})};
@@ -39,8 +42,9 @@ const SettingInfo readerSettings[readerSettingsCount] = {
 
 constexpr int controlsSettingsCount = 4;
 const SettingInfo controlsSettings[controlsSettingsCount] = {
+    // Korean translations with new upstream option
     SettingInfo::Enum("앞면 버튼 레이아웃", &CrossPointSettings::frontButtonLayout,
-                      {"뒤로, 확인, 왼쪽, 오른쪽", "왼쪽, 오른쪽, 뒤로, 확인", "왼쪽, 뒤로, 확인, 오른쪽"}),
+                      {"뒤로, 확인, 왼쪽, 오른쪽", "왼쪽, 오른쪽, 뒤로, 확인", "왼쪽, 뒤로, 확인, 오른쪽", "뒤로, 확인, 오른쪽, 왼쪽"}),
     SettingInfo::Enum("측면 버튼 레이아웃 (리더기)", &CrossPointSettings::sideButtonLayout,
                       {"이전, 다음", "다음, 이전"}),
     SettingInfo::Toggle("길게 누르면 챕터 건너뛰기", &CrossPointSettings::longPressChapterSkip),
@@ -49,7 +53,7 @@ const SettingInfo controlsSettings[controlsSettingsCount] = {
 constexpr int systemSettingsCount = 5;
 const SettingInfo systemSettings[systemSettingsCount] = {
     SettingInfo::Enum("절전 시간", &CrossPointSettings::sleepTimeout, {"1분", "5분", "10분", "15분", "30분"}),
-    SettingInfo::Action("KOReader 동기화"), SettingInfo::Action("Calibre 설정"), SettingInfo::Action("캐시 지우기"),
+    SettingInfo::Action("KOReader 동기화"), SettingInfo::Action("OPDS 브라우저"), SettingInfo::Action("캐시 지우기"),
     SettingInfo::Action("업데이트 확인")};
 }  // namespace
 

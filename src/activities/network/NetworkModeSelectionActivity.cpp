@@ -6,13 +6,14 @@
 #include "fontIds.h"
 
 namespace {
-constexpr int MENU_ITEM_COUNT = 2;
-// const char* MENU_ITEMS[MENU_ITEM_COUNT] = {"Join a Network", "Create Hotspot"};
-const char* MENU_ITEMS[MENU_ITEM_COUNT] = {"네트워크에 연결", "핫스팟 생성"};
-// const char* MENU_DESCRIPTIONS[MENU_ITEM_COUNT] = {"Connect to an existing WiFi network",
-//                                                   "Create a WiFi network others can join"};
-const char* MENU_DESCRIPTIONS[MENU_ITEM_COUNT] = {"기존 WiFi 네트워크에 연결",
-                                                  "다른 사용자가 연결할 수 있는 WiFi 네트워크 생성"};
+constexpr int MENU_ITEM_COUNT = 3;
+// Korean translations
+const char* MENU_ITEMS[MENU_ITEM_COUNT] = {"네트워크에 연결", "Calibre에 연결", "핫스팟 생성"};
+const char* MENU_DESCRIPTIONS[MENU_ITEM_COUNT] = {
+    "기존 WiFi 네트워크에 연결",
+    "Calibre 무선 장치 전송 사용",
+    "다른 사용자가 연결할 수 있는 WiFi 네트워크 생성",
+};
 }  // namespace
 
 void NetworkModeSelectionActivity::taskTrampoline(void* param) {
@@ -61,7 +62,12 @@ void NetworkModeSelectionActivity::loop() {
 
   // Handle confirm button - select current option
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    const NetworkMode mode = (selectedIndex == 0) ? NetworkMode::JOIN_NETWORK : NetworkMode::CREATE_HOTSPOT;
+    NetworkMode mode = NetworkMode::JOIN_NETWORK;
+    if (selectedIndex == 1) {
+      mode = NetworkMode::CONNECT_CALIBRE;
+    } else if (selectedIndex == 2) {
+      mode = NetworkMode::CREATE_HOTSPOT;
+    }
     onModeSelected(mode);
     return;
   }

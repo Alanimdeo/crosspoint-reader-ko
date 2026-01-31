@@ -112,7 +112,7 @@ void CategorySettingsActivity::toggleCurrentSetting() {
         updateRequired = true;
       }));
       xSemaphoreGive(renderingMutex);
-    } else if (strcmp(setting.name, "Calibre Settings") == 0 || strcmp(setting.name, "Calibre 설정") == 0) {
+    } else if (strcmp(setting.name, "OPDS Browser") == 0 || strcmp(setting.name, "OPDS 브라우저") == 0) {
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
       exitActivity();
       enterNewActivity(new CalibreSettingsActivity(renderer, mappedInput, [this] {
