@@ -18,8 +18,7 @@ const SettingInfo displaySettings[displaySettingsCount] = {
     SettingInfo::Enum("절전 화면 이미지", &CrossPointSettings::sleepScreen,
                       {"다크", "라이트", "사용자 정의", "커버", "없음"}),
     SettingInfo::Enum("절전 화면 커버 모드", &CrossPointSettings::sleepScreenCoverMode, {"맞춤", "자르기"}),
-    SettingInfo::Enum("절전 화면 커버 필터", &CrossPointSettings::sleepScreenCoverFilter,
-                      {"없음", "대비", "반전"}),
+    SettingInfo::Enum("절전 화면 커버 필터", &CrossPointSettings::sleepScreenCoverFilter, {"없음", "대비", "반전"}),
     SettingInfo::Enum("상태 표시줄", &CrossPointSettings::statusBar,
                       {"없음", "진행 없음", "전체 w/ %", "전체 w/ 진행바", "진행바만"}),
     SettingInfo::Enum("배터리 % 숨기기", &CrossPointSettings::hideBatteryPercentage, {"안 함", "리더에서", "항상"}),
@@ -44,7 +43,8 @@ constexpr int controlsSettingsCount = 4;
 const SettingInfo controlsSettings[controlsSettingsCount] = {
     // Korean translations with new upstream option
     SettingInfo::Enum("앞면 버튼 레이아웃", &CrossPointSettings::frontButtonLayout,
-                      {"뒤로, 확인, 왼쪽, 오른쪽", "왼쪽, 오른쪽, 뒤로, 확인", "왼쪽, 뒤로, 확인, 오른쪽", "뒤로, 확인, 오른쪽, 왼쪽"}),
+                      {"뒤로, 확인, 왼쪽, 오른쪽", "왼쪽, 오른쪽, 뒤로, 확인", "왼쪽, 뒤로, 확인, 오른쪽",
+                       "뒤로, 확인, 오른쪽, 왼쪽"}),
     SettingInfo::Enum("측면 버튼 레이아웃 (리더기)", &CrossPointSettings::sideButtonLayout,
                       {"이전, 다음", "다음, 이전"}),
     SettingInfo::Toggle("길게 누르면 챕터 건너뛰기", &CrossPointSettings::longPressChapterSkip),
