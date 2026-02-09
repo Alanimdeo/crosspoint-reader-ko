@@ -17,51 +17,6 @@
 
 const char* SettingsActivity::categoryNames[categoryCount] = {"디스플레이", "리더", "컨트롤", "시스템"};
 
-namespace {
-constexpr int displaySettingsCount = 8;
-const SettingInfo displaySettings[displaySettingsCount] = {
-    SettingInfo::Enum("절전 화면 이미지", &CrossPointSettings::sleepScreen,
-                      {"다크", "라이트", "사용자 정의", "커버", "없음", "커버 + 사용자 정의"}),
-    SettingInfo::Enum("절전 화면 커버 모드", &CrossPointSettings::sleepScreenCoverMode, {"맞춤", "자르기"}),
-    SettingInfo::Enum("절전 화면 커버 필터", &CrossPointSettings::sleepScreenCoverFilter, {"없음", "대비", "반전"}),
-    SettingInfo::Enum("상태 표시줄", &CrossPointSettings::statusBar,
-                      {"없음", "진행 없음", "전체 w/ %", "전체 w/ 진행바", "진행바만", "전체 w/ 챕터바"}),
-    SettingInfo::Enum("배터리 % 숨기기", &CrossPointSettings::hideBatteryPercentage, {"안 함", "리더에서", "항상"}),
-    SettingInfo::Enum("새로고침 주기", &CrossPointSettings::refreshFrequency,
-                      {"1 페이지", "5 페이지", "10 페이지", "15 페이지", "30 페이지"}),
-    SettingInfo::Enum("UI 테마", &CrossPointSettings::uiTheme, {"클래식", "Lyra"}),
-    SettingInfo::Toggle("햇빛 바램 보정", &CrossPointSettings::fadingFix)};
-
-constexpr int readerSettingsCount = 12;
-const SettingInfo readerSettings[readerSettingsCount] = {
-    SettingInfo::Action("글꼴 설정"),
-    SettingInfo::Enum("줄 간격", &CrossPointSettings::lineSpacing, {"좁게", "보통", "넓게"}),
-    SettingInfo::Value("화면 여백", &CrossPointSettings::screenMargin, {5, 40, 5}),
-    SettingInfo::Enum("문단 정렬", &CrossPointSettings::paragraphAlignment,
-                      {"양쪽 정렬", "왼쪽", "가운데", "오른쪽", "책 스타일"}),
-    SettingInfo::Toggle("책 내장 스타일", &CrossPointSettings::embeddedStyle),
-    SettingInfo::Toggle("하이픈 처리", &CrossPointSettings::hyphenationEnabled),
-    SettingInfo::Enum("읽기 방향", &CrossPointSettings::orientation,
-                      {"세로", "가로 시계방향", "반전", "가로 반시계방향"}),
-    SettingInfo::Toggle("문단 간격 추가", &CrossPointSettings::extraParagraphSpacing),
-    SettingInfo::Toggle("첫 줄 들여쓰기", &CrossPointSettings::paragraphIndent),
-    SettingInfo::Toggle("문자 단위 줄바꿈", &CrossPointSettings::characterWrap),
-    SettingInfo::Toggle("텍스트 안티앨리어싱", &CrossPointSettings::textAntiAliasing)};
-
-constexpr int controlsSettingsCount = 3;
-const SettingInfo controlsSettings[controlsSettingsCount] = {
-    SettingInfo::Enum("측면 버튼 레이아웃 (리더기)", &CrossPointSettings::sideButtonLayout,
-                      {"이전, 다음", "다음, 이전"}),
-    SettingInfo::Toggle("길게 누르면 챕터 건너뛰기", &CrossPointSettings::longPressChapterSkip),
-    SettingInfo::Enum("전원 버튼 짧게 누르기", &CrossPointSettings::shortPwrBtn, {"무시", "절전", "페이지 넘기기"})};
-
-constexpr int systemSettingsCount = 5;
-const SettingInfo systemSettings[systemSettingsCount] = {
-    SettingInfo::Enum("절전 시간", &CrossPointSettings::sleepTimeout, {"1분", "5분", "10분", "15분", "30분"}),
-    SettingInfo::Action("KOReader 동기화"), SettingInfo::Action("OPDS 브라우저"), SettingInfo::Action("캐시 지우기"),
-    SettingInfo::Action("업데이트 확인")};
-}  // namespace
-
 void SettingsActivity::taskTrampoline(void* param) {
   auto* self = static_cast<SettingsActivity*>(param);
   self->displayTaskLoop();
@@ -92,11 +47,12 @@ void SettingsActivity::onEnter() {
   }
 
   // Append device-only ACTION items
-  controlsSettings.insert(controlsSettings.begin(), SettingInfo::Action("Remap Front Buttons"));
-  systemSettings.push_back(SettingInfo::Action("KOReader Sync"));
-  systemSettings.push_back(SettingInfo::Action("OPDS Browser"));
-  systemSettings.push_back(SettingInfo::Action("Clear Cache"));
-  systemSettings.push_back(SettingInfo::Action("Check for updates"));
+  readerSettings.insert(readerSettings.begin(), SettingInfo::Action("글꼴 설정"));
+  controlsSettings.insert(controlsSettings.begin(), SettingInfo::Action("전면 버튼 재배치"));
+  systemSettings.push_back(SettingInfo::Action("KOReader 동기화"));
+  systemSettings.push_back(SettingInfo::Action("OPDS 브라우저"));
+  systemSettings.push_back(SettingInfo::Action("캐시 지우기"));
+  systemSettings.push_back(SettingInfo::Action("업데이트 확인"));
 
   // Reset selection to first category
   selectedCategoryIndex = 0;
@@ -224,7 +180,15 @@ void SettingsActivity::toggleCurrentSetting() {
       SETTINGS.*(setting.valuePtr) = currentValue + setting.valueRange.step;
     }
   } else if (setting.type == SettingType::ACTION) {
-    if (strcmp(setting.name, "Remap Front Buttons") == 0) {
+    if (strcmp(setting.name, "글꼴 설정") == 0) {
+      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      exitActivity();
+      enterNewActivity(new FontSelectionActivity(renderer, mappedInput, [this] {
+        exitActivity();
+        updateRequired = true;
+      }));
+      xSemaphoreGive(renderingMutex);
+    } else if (strcmp(setting.name, "전면 버튼 재배치") == 0) {
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
       exitActivity();
       enterNewActivity(new ButtonRemapActivity(renderer, mappedInput, [this] {
@@ -232,7 +196,7 @@ void SettingsActivity::toggleCurrentSetting() {
         updateRequired = true;
       }));
       xSemaphoreGive(renderingMutex);
-    } else if (strcmp(setting.name, "KOReader Sync") == 0) {
+    } else if (strcmp(setting.name, "KOReader 동기화") == 0) {
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
       exitActivity();
       enterNewActivity(new KOReaderSettingsActivity(renderer, mappedInput, [this] {
@@ -240,7 +204,7 @@ void SettingsActivity::toggleCurrentSetting() {
         updateRequired = true;
       }));
       xSemaphoreGive(renderingMutex);
-    } else if (strcmp(setting.name, "OPDS Browser") == 0) {
+    } else if (strcmp(setting.name, "OPDS 브라우저") == 0) {
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
       exitActivity();
       enterNewActivity(new CalibreSettingsActivity(renderer, mappedInput, [this] {
@@ -248,7 +212,7 @@ void SettingsActivity::toggleCurrentSetting() {
         updateRequired = true;
       }));
       xSemaphoreGive(renderingMutex);
-    } else if (strcmp(setting.name, "Clear Cache") == 0) {
+    } else if (strcmp(setting.name, "캐시 지우기") == 0) {
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
       exitActivity();
       enterNewActivity(new ClearCacheActivity(renderer, mappedInput, [this] {
@@ -256,7 +220,7 @@ void SettingsActivity::toggleCurrentSetting() {
         updateRequired = true;
       }));
       xSemaphoreGive(renderingMutex);
-    } else if (strcmp(setting.name, "Check for updates") == 0) {
+    } else if (strcmp(setting.name, "업데이트 확인") == 0) {
       xSemaphoreTake(renderingMutex, portMAX_DELAY);
       exitActivity();
       enterNewActivity(new OtaUpdateActivity(renderer, mappedInput, [this] {
@@ -292,7 +256,7 @@ void SettingsActivity::render() const {
 
   auto metrics = UITheme::getInstance().getMetrics();
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, "Settings");
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, "설정");
 
   std::vector<TabInfo> tabs;
   tabs.reserve(categoryCount);
@@ -320,6 +284,8 @@ void SettingsActivity::render() const {
           valueText = settings[i].enumValues[value];
         } else if (settings[i].type == SettingType::VALUE && settings[i].valuePtr != nullptr) {
           valueText = std::to_string(SETTINGS.*(settings[i].valuePtr));
+        } else if (settings[i].type == SettingType::ACTION && strcmp(settings[i].name, "글꼴 설정") == 0) {
+          valueText = SETTINGS.getCustomFontName();
         }
         return valueText;
       });
