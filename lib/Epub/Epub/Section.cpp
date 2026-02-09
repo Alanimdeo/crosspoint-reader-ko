@@ -1,6 +1,6 @@
 #include "Section.h"
 
-#include <SDCardManager.h>
+#include <HalStorage.h>
 #include <Serialization.h>
 
 #include "Page.h"
@@ -8,10 +8,10 @@
 #include "parsers/ChapterHtmlSlimParser.h"
 
 namespace {
-constexpr uint8_t SECTION_FILE_VERSION = 19;  // Incremented for paragraph indent + hyphenation support
+constexpr uint8_t SECTION_FILE_VERSION = 20;  // Korean + upstream embeddedStyle merge
 constexpr uint32_t HEADER_SIZE = sizeof(uint8_t) + sizeof(int) + sizeof(float) + sizeof(bool) + sizeof(bool) +
                                  sizeof(uint8_t) + sizeof(bool) + sizeof(uint16_t) + sizeof(uint16_t) + sizeof(bool) +
-                                 sizeof(uint16_t) + sizeof(uint32_t);
+                                 sizeof(bool) + sizeof(uint16_t) + sizeof(uint32_t);
 }  // namespace
 
 uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
@@ -34,7 +34,8 @@ uint32_t Section::onPageComplete(std::unique_ptr<Page> page) {
 void Section::writeSectionFileHeader(const int fontId, const float lineCompression, const bool extraParagraphSpacing,
                                      const bool paragraphIndent, const uint8_t paragraphAlignment,
                                      const bool characterWrap, const uint16_t viewportWidth,
-                                     const uint16_t viewportHeight, const bool hyphenationEnabled) {
+                                     const uint16_t viewportHeight, const bool hyphenationEnabled,
+                                     const bool embeddedStyle) {
   if (!file) {
     Serial.printf("[%lu] [SCT] File not open for writing header\n", millis());
     return;
@@ -42,8 +43,8 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
   static_assert(HEADER_SIZE == sizeof(SECTION_FILE_VERSION) + sizeof(fontId) + sizeof(lineCompression) +
                                    sizeof(extraParagraphSpacing) + sizeof(paragraphIndent) +
                                    sizeof(paragraphAlignment) + sizeof(characterWrap) + sizeof(viewportWidth) +
-                                   sizeof(viewportHeight) + sizeof(hyphenationEnabled) + sizeof(pageCount) +
-                                   sizeof(uint32_t),
+                                   sizeof(viewportHeight) + sizeof(hyphenationEnabled) + sizeof(embeddedStyle) +
+                                   sizeof(pageCount) + sizeof(uint32_t),
                 "Header size mismatch");
   serialization::writePod(file, SECTION_FILE_VERSION);
   serialization::writePod(file, fontId);
@@ -55,6 +56,7 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
   serialization::writePod(file, viewportWidth);
   serialization::writePod(file, viewportHeight);
   serialization::writePod(file, hyphenationEnabled);
+  serialization::writePod(file, embeddedStyle);
   serialization::writePod(file, pageCount);  // Placeholder for page count (will be initially 0 when written)
   serialization::writePod(file, static_cast<uint32_t>(0));  // Placeholder for LUT offset
 }
@@ -62,8 +64,8 @@ void Section::writeSectionFileHeader(const int fontId, const float lineCompressi
 bool Section::loadSectionFile(const int fontId, const float lineCompression, const bool extraParagraphSpacing,
                               const bool paragraphIndent, const uint8_t paragraphAlignment, const bool characterWrap,
                               const uint16_t viewportWidth, const uint16_t viewportHeight,
-                              const bool hyphenationEnabled) {
-  if (!SdMan.openFileForRead("SCT", filePath, file)) {
+                              const bool hyphenationEnabled, const bool embeddedStyle) {
+  if (!Storage.openFileForRead("SCT", filePath, file)) {
     return false;
   }
 
@@ -86,6 +88,7 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     uint8_t fileParagraphAlignment;
     bool fileCharacterWrap;
     bool fileHyphenationEnabled;
+    bool fileEmbeddedStyle;
     serialization::readPod(file, fileFontId);
     serialization::readPod(file, fileLineCompression);
     serialization::readPod(file, fileExtraParagraphSpacing);
@@ -95,6 +98,7 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
     serialization::readPod(file, fileViewportWidth);
     serialization::readPod(file, fileViewportHeight);
     serialization::readPod(file, fileHyphenationEnabled);
+    serialization::readPod(file, fileEmbeddedStyle);
 
     Serial.printf("[%lu] [SCT] Cache check: fontId=%d (file=%d), viewport=%dx%d (file=%dx%d)\n", millis(), fontId,
                   fileFontId, viewportWidth, viewportHeight, fileViewportWidth, fileViewportHeight);
@@ -103,7 +107,7 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
         extraParagraphSpacing != fileExtraParagraphSpacing || paragraphIndent != fileParagraphIndent ||
         paragraphAlignment != fileParagraphAlignment || characterWrap != fileCharacterWrap ||
         viewportWidth != fileViewportWidth || viewportHeight != fileViewportHeight ||
-        hyphenationEnabled != fileHyphenationEnabled) {
+        hyphenationEnabled != fileHyphenationEnabled || embeddedStyle != fileEmbeddedStyle) {
       file.close();
       Serial.printf("[%lu] [SCT] Deserialization failed: Parameters do not match\n", millis());
       clearCache();
@@ -119,12 +123,12 @@ bool Section::loadSectionFile(const int fontId, const float lineCompression, con
 
 // Your updated class method (assuming you are using the 'SD' object, which is a wrapper for a specific filesystem)
 bool Section::clearCache() const {
-  if (!SdMan.exists(filePath.c_str())) {
+  if (!Storage.exists(filePath.c_str())) {
     Serial.printf("[%lu] [SCT] Cache does not exist, no action needed\n", millis());
     return true;
   }
 
-  if (!SdMan.remove(filePath.c_str())) {
+  if (!Storage.remove(filePath.c_str())) {
     Serial.printf("[%lu] [SCT] Failed to clear cache\n", millis());
     return false;
   }
@@ -136,16 +140,15 @@ bool Section::clearCache() const {
 bool Section::createSectionFile(const int fontId, const float lineCompression, const bool extraParagraphSpacing,
                                 const bool paragraphIndent, const uint8_t paragraphAlignment, const bool characterWrap,
                                 const uint16_t viewportWidth, const uint16_t viewportHeight,
-                                const bool hyphenationEnabled, const std::function<void()>& progressSetupFn,
-                                const std::function<void(int)>& progressFn) {
-  constexpr uint32_t MIN_SIZE_FOR_PROGRESS = 50 * 1024;  // 50KB
+                                const bool hyphenationEnabled, const bool embeddedStyle,
+                                const std::function<void()>& popupFn) {
   const auto localPath = epub->getSpineItem(spineIndex).href;
   const auto tmpHtmlPath = epub->getCachePath() + "/.tmp_" + std::to_string(spineIndex) + ".html";
 
   // Create cache directory if it doesn't exist
   {
     const auto sectionsDir = epub->getCachePath() + "/sections";
-    SdMan.mkdir(sectionsDir.c_str());
+    Storage.mkdir(sectionsDir.c_str());
   }
 
   // Retry logic for SD card timing issues
@@ -158,12 +161,12 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     }
 
     // Remove any incomplete file from previous attempt before retrying
-    if (SdMan.exists(tmpHtmlPath.c_str())) {
-      SdMan.remove(tmpHtmlPath.c_str());
+    if (Storage.exists(tmpHtmlPath.c_str())) {
+      Storage.remove(tmpHtmlPath.c_str());
     }
 
     FsFile tmpHtml;
-    if (!SdMan.openFileForWrite("SCT", tmpHtmlPath, tmpHtml)) {
+    if (!Storage.openFileForWrite("SCT", tmpHtmlPath, tmpHtml)) {
       continue;
     }
     success = epub->readItemContentsToStream(localPath, tmpHtml, 1024);
@@ -171,8 +174,8 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
     tmpHtml.close();
 
     // If streaming failed, remove the incomplete file immediately
-    if (!success && SdMan.exists(tmpHtmlPath.c_str())) {
-      SdMan.remove(tmpHtmlPath.c_str());
+    if (!success && Storage.exists(tmpHtmlPath.c_str())) {
+      Storage.remove(tmpHtmlPath.c_str());
       Serial.printf("[%lu] [SCT] Removed incomplete temp file after failed attempt\n", millis());
     }
   }
@@ -184,31 +187,26 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
 
   Serial.printf("[%lu] [SCT] Streamed temp HTML to %s (%d bytes)\n", millis(), tmpHtmlPath.c_str(), fileSize);
 
-  // Only show progress bar for larger chapters where rendering overhead is worth it
-  if (progressSetupFn && fileSize >= MIN_SIZE_FOR_PROGRESS) {
-    progressSetupFn();
-  }
-
-  if (!SdMan.openFileForWrite("SCT", filePath, file)) {
+  if (!Storage.openFileForWrite("SCT", filePath, file)) {
     return false;
   }
   writeSectionFileHeader(fontId, lineCompression, extraParagraphSpacing, paragraphIndent, paragraphAlignment,
-                         characterWrap, viewportWidth, viewportHeight, hyphenationEnabled);
+                         characterWrap, viewportWidth, viewportHeight, hyphenationEnabled, embeddedStyle);
   std::vector<uint32_t> lut = {};
 
   ChapterHtmlSlimParser visitor(
       tmpHtmlPath, renderer, fontId, lineCompression, extraParagraphSpacing, paragraphIndent, paragraphAlignment,
       characterWrap, viewportWidth, viewportHeight, hyphenationEnabled,
       [this, &lut](std::unique_ptr<Page> page) { lut.emplace_back(this->onPageComplete(std::move(page))); },
-      progressFn);
+      embeddedStyle, popupFn, embeddedStyle ? epub->getCssParser() : nullptr);
   Hyphenator::setPreferredLanguage(epub->getLanguage());
   success = visitor.parseAndBuildPages();
 
-  SdMan.remove(tmpHtmlPath.c_str());
+  Storage.remove(tmpHtmlPath.c_str());
   if (!success) {
     Serial.printf("[%lu] [SCT] Failed to parse XML and build pages\n", millis());
     file.close();
-    SdMan.remove(filePath.c_str());
+    Storage.remove(filePath.c_str());
     return false;
   }
 
@@ -226,7 +224,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
   if (hasFailedLutRecords) {
     Serial.printf("[%lu] [SCT] Failed to write LUT due to invalid page positions\n", millis());
     file.close();
-    SdMan.remove(filePath.c_str());
+    Storage.remove(filePath.c_str());
     return false;
   }
 
@@ -239,7 +237,7 @@ bool Section::createSectionFile(const int fontId, const float lineCompression, c
 }
 
 std::unique_ptr<Page> Section::loadPageFromSectionFile() {
-  if (!SdMan.openFileForRead("SCT", filePath, file)) {
+  if (!Storage.openFileForRead("SCT", filePath, file)) {
     return nullptr;
   }
 

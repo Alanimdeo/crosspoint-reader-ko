@@ -3,6 +3,7 @@
 #include <GfxRenderer.h>
 
 #include "MappedInputManager.h"
+#include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
@@ -73,18 +74,15 @@ void NetworkModeSelectionActivity::loop() {
   }
 
   // Handle navigation
-  const bool prevPressed = mappedInput.wasPressed(MappedInputManager::Button::Up) ||
-                           mappedInput.wasPressed(MappedInputManager::Button::Left);
-  const bool nextPressed = mappedInput.wasPressed(MappedInputManager::Button::Down) ||
-                           mappedInput.wasPressed(MappedInputManager::Button::Right);
+  buttonNavigator.onNext([this] {
+    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, MENU_ITEM_COUNT);
+    updateRequired = true;
+  });
 
-  if (prevPressed) {
-    selectedIndex = (selectedIndex + MENU_ITEM_COUNT - 1) % MENU_ITEM_COUNT;
+  buttonNavigator.onPrevious([this] {
+    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, MENU_ITEM_COUNT);
     updateRequired = true;
-  } else if (nextPressed) {
-    selectedIndex = (selectedIndex + 1) % MENU_ITEM_COUNT;
-    updateRequired = true;
-  }
+  });
 }
 
 void NetworkModeSelectionActivity::displayTaskLoop() {
@@ -133,9 +131,8 @@ void NetworkModeSelectionActivity::render() const {
   }
 
   // Draw help text at bottom
-  // const auto labels = mappedInput.mapLabels("« Back", "Select", "", "");
   const auto labels = mappedInput.mapLabels("« 뒤로", "선택", "", "");
-  renderer.drawButtonHints(UI_10_FONT_ID, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
 }

@@ -2,53 +2,37 @@
 
 #include <Epub.h>
 #include <GfxRenderer.h>
-#include <SDCardManager.h>
+#include <HalStorage.h>
 #include <Txt.h>
 #include <Xtc.h>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "components/UITheme.h"
 #include "fontIds.h"
-#include "images/CrossLarge.h"
+#include "images/Logo120.h"
 #include "util/StringUtils.h"
 
 void SleepActivity::onEnter() {
   Activity::onEnter();
-  // renderPopup("Entering Sleep...");
-  renderPopup("절전 모드 진입 중...");
+  GUI.drawPopup(renderer, "절전 모드 진입 중...");
 
-  if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::BLANK) {
-    return renderBlankSleepScreen();
+  switch (SETTINGS.sleepScreen) {
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::BLANK):
+      return renderBlankSleepScreen();
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM):
+      return renderCustomSleepScreen();
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER):
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM):
+      return renderCoverSleepScreen();
+    default:
+      return renderDefaultSleepScreen();
   }
-
-  if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM) {
-    return renderCustomSleepScreen();
-  }
-
-  if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::COVER) {
-    return renderCoverSleepScreen();
-  }
-
-  renderDefaultSleepScreen();
-}
-
-void SleepActivity::renderPopup(const char* message) const {
-  const int textWidth = renderer.getTextWidth(UI_12_FONT_ID, message, EpdFontFamily::BOLD);
-  constexpr int margin = 20;
-  const int x = (renderer.getScreenWidth() - textWidth - margin * 2) / 2;
-  constexpr int y = 117;
-  const int w = textWidth + margin * 2;
-  const int h = renderer.getLineHeight(UI_12_FONT_ID) + margin * 2;
-  // renderer.clearScreen();
-  renderer.fillRect(x - 5, y - 5, w + 10, h + 10, true);
-  renderer.fillRect(x + 5, y + 5, w - 10, h - 10, false);
-  renderer.drawText(UI_12_FONT_ID, x + margin, y + margin, message, true, EpdFontFamily::BOLD);
-  renderer.displayBuffer();
 }
 
 void SleepActivity::renderCustomSleepScreen() const {
   // Check if we have a /sleep directory
-  auto dir = SdMan.open("/sleep");
+  auto dir = Storage.open("/sleep");
   if (dir && dir.isDirectory()) {
     std::vector<std::string> files;
     char name[500];
@@ -91,7 +75,7 @@ void SleepActivity::renderCustomSleepScreen() const {
       APP_STATE.saveToFile();
       const auto filename = "/sleep/" + files[randomFileIndex];
       FsFile file;
-      if (SdMan.openFileForRead("SLP", filename, file)) {
+      if (Storage.openFileForRead("SLP", filename, file)) {
         Serial.printf("[%lu] [SLP] Randomly loading: /sleep/%s\n", millis(), files[randomFileIndex].c_str());
         delay(100);
         Bitmap bitmap(file, true);
@@ -108,7 +92,7 @@ void SleepActivity::renderCustomSleepScreen() const {
   // Look for sleep.bmp on the root of the sd card to determine if we should
   // render a custom sleep screen instead of the default.
   FsFile file;
-  if (SdMan.openFileForRead("SLP", "/sleep.bmp", file)) {
+  if (Storage.openFileForRead("SLP", "/sleep.bmp", file)) {
     Bitmap bitmap(file, true);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
       Serial.printf("[%lu] [SLP] Loading: /sleep.bmp\n", millis());
@@ -125,7 +109,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
   const auto pageHeight = renderer.getScreenHeight();
 
   renderer.clearScreen();
-  renderer.drawImage(CrossLarge, (pageWidth - 128) / 2, (pageHeight - 128) / 2, 128, 128);
+  renderer.drawImage(Logo120, (pageWidth - 120) / 2, (pageHeight - 120) / 2, 120, 120);
   renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 70, "CrossPoint", true, EpdFontFamily::BOLD);
   // renderer.drawCenteredText(SMALL_FONT_ID, pageHeight / 2 + 95, "SLEEPING");
   renderer.drawCenteredText(SMALL_FONT_ID, pageHeight / 2 + 95, "절전 모드");
@@ -212,8 +196,18 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
 }
 
 void SleepActivity::renderCoverSleepScreen() const {
+  void (SleepActivity::*renderNoCoverSleepScreen)() const;
+  switch (SETTINGS.sleepScreen) {
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM):
+      renderNoCoverSleepScreen = &SleepActivity::renderCustomSleepScreen;
+      break;
+    default:
+      renderNoCoverSleepScreen = &SleepActivity::renderDefaultSleepScreen;
+      break;
+  }
+
   if (APP_STATE.openEpubPath.empty()) {
-    return renderDefaultSleepScreen();
+    return (this->*renderNoCoverSleepScreen)();
   }
 
   std::string coverBmpPath;
@@ -226,12 +220,12 @@ void SleepActivity::renderCoverSleepScreen() const {
     Xtc lastXtc(APP_STATE.openEpubPath, "/.crosspoint");
     if (!lastXtc.load()) {
       Serial.println("[SLP] Failed to load last XTC");
-      return renderDefaultSleepScreen();
+      return (this->*renderNoCoverSleepScreen)();
     }
 
     if (!lastXtc.generateCoverBmp()) {
       Serial.println("[SLP] Failed to generate XTC cover bmp");
-      return renderDefaultSleepScreen();
+      return (this->*renderNoCoverSleepScreen)();
     }
 
     coverBmpPath = lastXtc.getCoverBmpPath();
@@ -240,44 +234,45 @@ void SleepActivity::renderCoverSleepScreen() const {
     Txt lastTxt(APP_STATE.openEpubPath, "/.crosspoint");
     if (!lastTxt.load()) {
       Serial.println("[SLP] Failed to load last TXT");
-      return renderDefaultSleepScreen();
+      return (this->*renderNoCoverSleepScreen)();
     }
 
     if (!lastTxt.generateCoverBmp()) {
       Serial.println("[SLP] No cover image found for TXT file");
-      return renderDefaultSleepScreen();
+      return (this->*renderNoCoverSleepScreen)();
     }
 
     coverBmpPath = lastTxt.getCoverBmpPath();
   } else if (StringUtils::checkFileExtension(APP_STATE.openEpubPath, ".epub")) {
     // Handle EPUB file
     Epub lastEpub(APP_STATE.openEpubPath, "/.crosspoint");
-    if (!lastEpub.load()) {
+    // Skip loading css since we only need metadata here
+    if (!lastEpub.load(true, true)) {
       Serial.println("[SLP] Failed to load last epub");
-      return renderDefaultSleepScreen();
+      return (this->*renderNoCoverSleepScreen)();
     }
 
     if (!lastEpub.generateCoverBmp(cropped)) {
       Serial.println("[SLP] Failed to generate cover bmp");
-      return renderDefaultSleepScreen();
+      return (this->*renderNoCoverSleepScreen)();
     }
 
     coverBmpPath = lastEpub.getCoverBmpPath(cropped);
   } else {
-    return renderDefaultSleepScreen();
+    return (this->*renderNoCoverSleepScreen)();
   }
 
   FsFile file;
-  if (SdMan.openFileForRead("SLP", coverBmpPath, file)) {
+  if (Storage.openFileForRead("SLP", coverBmpPath, file)) {
     Bitmap bitmap(file);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-      Serial.printf("[SLP] Rendering sleep cover: %s\n", coverBmpPath);
+      Serial.printf("[SLP] Rendering sleep cover: %s\n", coverBmpPath.c_str());
       renderBitmapSleepScreen(bitmap);
       return;
     }
   }
 
-  renderDefaultSleepScreen();
+  return (this->*renderNoCoverSleepScreen)();
 }
 
 void SleepActivity::renderBlankSleepScreen() const {

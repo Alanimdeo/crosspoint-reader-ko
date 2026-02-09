@@ -12,6 +12,7 @@
 #include "KOReaderSettingsActivity.h"
 #include "MappedInputManager.h"
 #include "OtaUpdateActivity.h"
+#include "components/UITheme.h"
 #include "fontIds.h"
 
 void CategorySettingsActivity::taskTrampoline(void* param) {
@@ -199,7 +200,7 @@ void CategorySettingsActivity::render() const {
                     pageHeight - 60, CROSSPOINT_VERSION);
 
   const auto labels = mappedInput.mapLabels("« 뒤로", "토글", "", "");
-  renderer.drawButtonHints(UI_10_FONT_ID, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
 }

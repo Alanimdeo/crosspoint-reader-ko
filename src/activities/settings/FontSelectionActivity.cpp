@@ -1,14 +1,15 @@
 #include "FontSelectionActivity.h"
 
 #include <GfxRenderer.h>
+#include <HalStorage.h>
 #include <HardwareSerial.h>
-#include <SDCardManager.h>
 
 #include <cstring>
 
 #include "CrossPointSettings.h"
 #include "FontManager.h"
 #include "MappedInputManager.h"
+#include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
@@ -17,7 +18,7 @@ constexpr const char* CACHE_DIR = "/.crosspoint/cache";
 
 // Recursively delete a directory and its contents
 void deleteDirectory(const char* path) {
-  FsFile dir = SdMan.open(path);
+  FsFile dir = Storage.open(path);
   if (!dir || !dir.isDir()) {
     if (dir) dir.close();
     return;
@@ -30,19 +31,19 @@ void deleteDirectory(const char* path) {
     entry.close();
 
     std::string fullPath = std::string(path) + "/" + entryName;
-    FsFile check = SdMan.open(fullPath.c_str());
+    FsFile check = Storage.open(fullPath.c_str());
     if (check) {
       bool isDir = check.isDir();
       check.close();
       if (isDir) {
         deleteDirectory(fullPath.c_str());
       } else {
-        SdMan.remove(fullPath.c_str());
+        Storage.remove(fullPath.c_str());
       }
     }
   }
   dir.close();
-  SdMan.rmdir(path);
+  Storage.rmdir(path);
 }
 
 // Invalidate rendering caches for EPUB and TXT readers
@@ -50,7 +51,7 @@ void deleteDirectory(const char* path) {
 void invalidateReaderCaches() {
   Serial.printf("[%lu] [FNT] Invalidating reader rendering caches...\n", millis());
 
-  FsFile cacheDir = SdMan.open(CACHE_DIR);
+  FsFile cacheDir = Storage.open(CACHE_DIR);
   if (!cacheDir || !cacheDir.isDir()) {
     if (cacheDir) cacheDir.close();
     Serial.printf("[%lu] [FNT] No cache directory found\n", millis());
@@ -68,7 +69,7 @@ void invalidateReaderCaches() {
 
     // For EPUB: delete sections/ folder (keeps progress.bin)
     std::string sectionsPath = bookCachePath + "/sections";
-    FsFile sectionsDir = SdMan.open(sectionsPath.c_str());
+    FsFile sectionsDir = Storage.open(sectionsPath.c_str());
     if (sectionsDir && sectionsDir.isDir()) {
       sectionsDir.close();
       deleteDirectory(sectionsPath.c_str());
@@ -80,8 +81,8 @@ void invalidateReaderCaches() {
 
     // For TXT: delete index.bin (keeps progress.bin)
     std::string indexPath = bookCachePath + "/index.bin";
-    if (SdMan.exists(indexPath.c_str())) {
-      SdMan.remove(indexPath.c_str());
+    if (Storage.exists(indexPath.c_str())) {
+      Storage.remove(indexPath.c_str());
       Serial.printf("[%lu] [FNT] Deleted TXT index cache: %s\n", millis(), indexPath.c_str());
       deletedCount++;
     }
@@ -98,7 +99,7 @@ void FontSelectionActivity::taskTrampoline(void* param) {
 }
 
 void FontSelectionActivity::scanFontsInDirectory(const char* dirPath) {
-  FsFile dir = SdMan.open(dirPath);
+  FsFile dir = Storage.open(dirPath);
   if (!dir) {
     Serial.printf("[%lu] [FNT] Font folder %s not found\n", millis(), dirPath);
     return;
@@ -145,8 +146,8 @@ void FontSelectionActivity::loadFontList() {
   fontNames.emplace_back(DEFAULT_FONT_NAME);
 
   // Ensure fonts directory exists
-  SdMan.mkdir("/.crosspoint");
-  SdMan.mkdir(FONTS_DIR);
+  Storage.mkdir("/.crosspoint");
+  Storage.mkdir(FONTS_DIR);
 
   // Scan fonts from /.crosspoint/fonts
   scanFontsInDirectory(FONTS_DIR);
@@ -336,7 +337,7 @@ void FontSelectionActivity::render() {
 
   // Draw help text
   const auto labels = mappedInput.mapLabels("« 뒤로", "선택", "", "");
-  renderer.drawButtonHints(UI_10_FONT_ID, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
 }

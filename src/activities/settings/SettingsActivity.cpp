@@ -3,34 +3,43 @@
 #include <GfxRenderer.h>
 #include <HardwareSerial.h>
 
-#include "CategorySettingsActivity.h"
+#include "ButtonRemapActivity.h"
+#include "CalibreSettingsActivity.h"
+#include "ClearCacheActivity.h"
 #include "CrossPointSettings.h"
 #include "FontSelectionActivity.h"
+#include "KOReaderSettingsActivity.h"
 #include "MappedInputManager.h"
+#include "OtaUpdateActivity.h"
+#include "SettingsList.h"
+#include "components/UITheme.h"
 #include "fontIds.h"
 
 const char* SettingsActivity::categoryNames[categoryCount] = {"디스플레이", "리더", "컨트롤", "시스템"};
 
 namespace {
-constexpr int displaySettingsCount = 6;
+constexpr int displaySettingsCount = 8;
 const SettingInfo displaySettings[displaySettingsCount] = {
-    // Should match with SLEEP_SCREEN_MODE (Korean)
     SettingInfo::Enum("절전 화면 이미지", &CrossPointSettings::sleepScreen,
-                      {"다크", "라이트", "사용자 정의", "커버", "없음"}),
+                      {"다크", "라이트", "사용자 정의", "커버", "없음", "커버 + 사용자 정의"}),
     SettingInfo::Enum("절전 화면 커버 모드", &CrossPointSettings::sleepScreenCoverMode, {"맞춤", "자르기"}),
     SettingInfo::Enum("절전 화면 커버 필터", &CrossPointSettings::sleepScreenCoverFilter, {"없음", "대비", "반전"}),
     SettingInfo::Enum("상태 표시줄", &CrossPointSettings::statusBar,
-                      {"없음", "진행 없음", "전체 w/ %", "전체 w/ 진행바", "진행바만"}),
+                      {"없음", "진행 없음", "전체 w/ %", "전체 w/ 진행바", "진행바만", "전체 w/ 챕터바"}),
     SettingInfo::Enum("배터리 % 숨기기", &CrossPointSettings::hideBatteryPercentage, {"안 함", "리더에서", "항상"}),
     SettingInfo::Enum("새로고침 주기", &CrossPointSettings::refreshFrequency,
-                      {"1 페이지", "5 페이지", "10 페이지", "15 페이지", "30 페이지"})};
+                      {"1 페이지", "5 페이지", "10 페이지", "15 페이지", "30 페이지"}),
+    SettingInfo::Enum("UI 테마", &CrossPointSettings::uiTheme, {"클래식", "Lyra"}),
+    SettingInfo::Toggle("햇빛 바램 보정", &CrossPointSettings::fadingFix)};
 
 constexpr int readerSettingsCount = 12;
 const SettingInfo readerSettings[readerSettingsCount] = {
     SettingInfo::Action("글꼴 설정"),
     SettingInfo::Enum("줄 간격", &CrossPointSettings::lineSpacing, {"좁게", "보통", "넓게"}),
     SettingInfo::Value("화면 여백", &CrossPointSettings::screenMargin, {5, 40, 5}),
-    SettingInfo::Enum("문단 정렬", &CrossPointSettings::paragraphAlignment, {"양쪽 정렬", "왼쪽", "가운데", "오른쪽"}),
+    SettingInfo::Enum("문단 정렬", &CrossPointSettings::paragraphAlignment,
+                      {"양쪽 정렬", "왼쪽", "가운데", "오른쪽", "책 스타일"}),
+    SettingInfo::Toggle("책 내장 스타일", &CrossPointSettings::embeddedStyle),
     SettingInfo::Toggle("하이픈 처리", &CrossPointSettings::hyphenationEnabled),
     SettingInfo::Enum("읽기 방향", &CrossPointSettings::orientation,
                       {"세로", "가로 시계방향", "반전", "가로 반시계방향"}),
@@ -39,12 +48,8 @@ const SettingInfo readerSettings[readerSettingsCount] = {
     SettingInfo::Toggle("문자 단위 줄바꿈", &CrossPointSettings::characterWrap),
     SettingInfo::Toggle("텍스트 안티앨리어싱", &CrossPointSettings::textAntiAliasing)};
 
-constexpr int controlsSettingsCount = 4;
+constexpr int controlsSettingsCount = 3;
 const SettingInfo controlsSettings[controlsSettingsCount] = {
-    // Korean translations with new upstream option
-    SettingInfo::Enum("앞면 버튼 레이아웃", &CrossPointSettings::frontButtonLayout,
-                      {"뒤로, 확인, 왼쪽, 오른쪽", "왼쪽, 오른쪽, 뒤로, 확인", "왼쪽, 뒤로, 확인, 오른쪽",
-                       "뒤로, 확인, 오른쪽, 왼쪽"}),
     SettingInfo::Enum("측면 버튼 레이아웃 (리더기)", &CrossPointSettings::sideButtonLayout,
                       {"이전, 다음", "다음, 이전"}),
     SettingInfo::Toggle("길게 누르면 챕터 건너뛰기", &CrossPointSettings::longPressChapterSkip),
@@ -66,8 +71,40 @@ void SettingsActivity::onEnter() {
   Activity::onEnter();
   renderingMutex = xSemaphoreCreateMutex();
 
+  // Build per-category vectors from the shared settings list
+  displaySettings.clear();
+  readerSettings.clear();
+  controlsSettings.clear();
+  systemSettings.clear();
+
+  for (auto& setting : getSettingsList()) {
+    if (!setting.category) continue;
+    if (strcmp(setting.category, "Display") == 0) {
+      displaySettings.push_back(std::move(setting));
+    } else if (strcmp(setting.category, "Reader") == 0) {
+      readerSettings.push_back(std::move(setting));
+    } else if (strcmp(setting.category, "Controls") == 0) {
+      controlsSettings.push_back(std::move(setting));
+    } else if (strcmp(setting.category, "System") == 0) {
+      systemSettings.push_back(std::move(setting));
+    }
+    // Web-only categories (KOReader Sync, OPDS Browser) are skipped for device UI
+  }
+
+  // Append device-only ACTION items
+  controlsSettings.insert(controlsSettings.begin(), SettingInfo::Action("Remap Front Buttons"));
+  systemSettings.push_back(SettingInfo::Action("KOReader Sync"));
+  systemSettings.push_back(SettingInfo::Action("OPDS Browser"));
+  systemSettings.push_back(SettingInfo::Action("Clear Cache"));
+  systemSettings.push_back(SettingInfo::Action("Check for updates"));
+
   // Reset selection to first category
   selectedCategoryIndex = 0;
+  selectedSettingIndex = 0;
+
+  // Initialize with first category (Display)
+  currentSettings = &displaySettings;
+  settingsCount = static_cast<int>(displaySettings.size());
 
   // Trigger first update
   updateRequired = true;
@@ -91,6 +128,8 @@ void SettingsActivity::onExit() {
   }
   vSemaphoreDelete(renderingMutex);
   renderingMutex = nullptr;
+
+  UITheme::getInstance().reload();  // Re-apply theme in case it was changed
 }
 
 void SettingsActivity::loop() {
@@ -98,11 +137,19 @@ void SettingsActivity::loop() {
     subActivity->loop();
     return;
   }
+  bool hasChangedCategory = false;
 
-  // Handle category selection
+  // Handle actions with early return
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    enterCategory(selectedCategoryIndex);
-    return;
+    if (selectedSettingIndex == 0) {
+      selectedCategoryIndex = (selectedCategoryIndex < categoryCount - 1) ? (selectedCategoryIndex + 1) : 0;
+      hasChangedCategory = true;
+      updateRequired = true;
+    } else {
+      toggleCurrentSetting();
+      updateRequired = true;
+      return;
+    }
   }
 
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
@@ -112,55 +159,117 @@ void SettingsActivity::loop() {
   }
 
   // Handle navigation
-  if (mappedInput.wasPressed(MappedInputManager::Button::Up) ||
-      mappedInput.wasPressed(MappedInputManager::Button::Left)) {
-    // Move selection up (with wrap-around)
-    selectedCategoryIndex = (selectedCategoryIndex > 0) ? (selectedCategoryIndex - 1) : (categoryCount - 1);
+  buttonNavigator.onNextRelease([this] {
+    selectedSettingIndex = ButtonNavigator::nextIndex(selectedSettingIndex, settingsCount + 1);
     updateRequired = true;
-  } else if (mappedInput.wasPressed(MappedInputManager::Button::Down) ||
-             mappedInput.wasPressed(MappedInputManager::Button::Right)) {
-    // Move selection down (with wrap around)
-    selectedCategoryIndex = (selectedCategoryIndex < categoryCount - 1) ? (selectedCategoryIndex + 1) : 0;
+  });
+
+  buttonNavigator.onPreviousRelease([this] {
+    selectedSettingIndex = ButtonNavigator::previousIndex(selectedSettingIndex, settingsCount + 1);
     updateRequired = true;
+  });
+
+  buttonNavigator.onNextContinuous([this, &hasChangedCategory] {
+    hasChangedCategory = true;
+    selectedCategoryIndex = ButtonNavigator::nextIndex(selectedCategoryIndex, categoryCount);
+    updateRequired = true;
+  });
+
+  buttonNavigator.onPreviousContinuous([this, &hasChangedCategory] {
+    hasChangedCategory = true;
+    selectedCategoryIndex = ButtonNavigator::previousIndex(selectedCategoryIndex, categoryCount);
+    updateRequired = true;
+  });
+
+  if (hasChangedCategory) {
+    selectedSettingIndex = (selectedSettingIndex == 0) ? 0 : 1;
+    switch (selectedCategoryIndex) {
+      case 0:
+        currentSettings = &displaySettings;
+        break;
+      case 1:
+        currentSettings = &readerSettings;
+        break;
+      case 2:
+        currentSettings = &controlsSettings;
+        break;
+      case 3:
+        currentSettings = &systemSettings;
+        break;
+    }
+    settingsCount = static_cast<int>(currentSettings->size());
   }
 }
 
-void SettingsActivity::enterCategory(int categoryIndex) {
-  if (categoryIndex < 0 || categoryIndex >= categoryCount) {
+void SettingsActivity::toggleCurrentSetting() {
+  int selectedSetting = selectedSettingIndex - 1;
+  if (selectedSetting < 0 || selectedSetting >= settingsCount) {
     return;
   }
 
-  xSemaphoreTake(renderingMutex, portMAX_DELAY);
-  exitActivity();
+  const auto& setting = (*currentSettings)[selectedSetting];
 
-  const SettingInfo* settingsList = nullptr;
-  int settingsCount = 0;
-
-  switch (categoryIndex) {
-    case 0:  // Display
-      settingsList = displaySettings;
-      settingsCount = displaySettingsCount;
-      break;
-    case 1:  // Reader
-      settingsList = readerSettings;
-      settingsCount = readerSettingsCount;
-      break;
-    case 2:  // Controls
-      settingsList = controlsSettings;
-      settingsCount = controlsSettingsCount;
-      break;
-    case 3:  // System
-      settingsList = systemSettings;
-      settingsCount = systemSettingsCount;
-      break;
+  if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
+    // Toggle the boolean value using the member pointer
+    const bool currentValue = SETTINGS.*(setting.valuePtr);
+    SETTINGS.*(setting.valuePtr) = !currentValue;
+  } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
+    const uint8_t currentValue = SETTINGS.*(setting.valuePtr);
+    SETTINGS.*(setting.valuePtr) = (currentValue + 1) % static_cast<uint8_t>(setting.enumValues.size());
+  } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
+    const int8_t currentValue = SETTINGS.*(setting.valuePtr);
+    if (currentValue + setting.valueRange.step > setting.valueRange.max) {
+      SETTINGS.*(setting.valuePtr) = setting.valueRange.min;
+    } else {
+      SETTINGS.*(setting.valuePtr) = currentValue + setting.valueRange.step;
+    }
+  } else if (setting.type == SettingType::ACTION) {
+    if (strcmp(setting.name, "Remap Front Buttons") == 0) {
+      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      exitActivity();
+      enterNewActivity(new ButtonRemapActivity(renderer, mappedInput, [this] {
+        exitActivity();
+        updateRequired = true;
+      }));
+      xSemaphoreGive(renderingMutex);
+    } else if (strcmp(setting.name, "KOReader Sync") == 0) {
+      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      exitActivity();
+      enterNewActivity(new KOReaderSettingsActivity(renderer, mappedInput, [this] {
+        exitActivity();
+        updateRequired = true;
+      }));
+      xSemaphoreGive(renderingMutex);
+    } else if (strcmp(setting.name, "OPDS Browser") == 0) {
+      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      exitActivity();
+      enterNewActivity(new CalibreSettingsActivity(renderer, mappedInput, [this] {
+        exitActivity();
+        updateRequired = true;
+      }));
+      xSemaphoreGive(renderingMutex);
+    } else if (strcmp(setting.name, "Clear Cache") == 0) {
+      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      exitActivity();
+      enterNewActivity(new ClearCacheActivity(renderer, mappedInput, [this] {
+        exitActivity();
+        updateRequired = true;
+      }));
+      xSemaphoreGive(renderingMutex);
+    } else if (strcmp(setting.name, "Check for updates") == 0) {
+      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      exitActivity();
+      enterNewActivity(new OtaUpdateActivity(renderer, mappedInput, [this] {
+        exitActivity();
+        updateRequired = true;
+      }));
+      xSemaphoreGive(renderingMutex);
+    }
+  } else {
+    return;
   }
 
-  enterNewActivity(new CategorySettingsActivity(renderer, mappedInput, categoryNames[categoryIndex], settingsList,
-                                                settingsCount, [this] {
-                                                  exitActivity();
-                                                  updateRequired = true;
-                                                }));
-  xSemaphoreGive(renderingMutex);
+  SETTINGS.saveToFile();
 }
 
 void SettingsActivity::displayTaskLoop() {
@@ -181,28 +290,48 @@ void SettingsActivity::render() const {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
 
-  // Draw header
-  // renderer.drawCenteredText(UI_12_FONT_ID, 15, "Settings", true, EpdFontFamily::BOLD);
-  renderer.drawCenteredText(UI_12_FONT_ID, 15, "설정", true, EpdFontFamily::BOLD);
+  auto metrics = UITheme::getInstance().getMetrics();
 
-  // Draw selection
-  renderer.fillRect(0, 60 + selectedCategoryIndex * 30 - 2, pageWidth - 1, 30);
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, "Settings");
 
-  // Draw all categories
+  std::vector<TabInfo> tabs;
+  tabs.reserve(categoryCount);
   for (int i = 0; i < categoryCount; i++) {
-    const int categoryY = 60 + i * 30;  // 30 pixels between categories
-
-    // Draw category name
-    renderer.drawText(UI_10_FONT_ID, 20, categoryY, categoryNames[i], i != selectedCategoryIndex);
+    tabs.push_back({categoryNames[i], selectedCategoryIndex == i});
   }
+  GUI.drawTabBar(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight}, tabs,
+                 selectedSettingIndex == 0);
 
-  // Draw version text above button hints
-  renderer.drawText(SMALL_FONT_ID, pageWidth - 20 - renderer.getTextWidth(SMALL_FONT_ID, CROSSPOINT_VERSION),
-                    pageHeight - 60, CROSSPOINT_VERSION);
+  const auto& settings = *currentSettings;
+  GUI.drawList(
+      renderer,
+      Rect{0, metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing, pageWidth,
+           pageHeight - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.buttonHintsHeight +
+                         metrics.verticalSpacing * 2)},
+      settingsCount, selectedSettingIndex - 1, [&settings](int index) { return std::string(settings[index].name); },
+      nullptr, nullptr,
+      [&settings](int i) {
+        std::string valueText = "";
+        if (settings[i].type == SettingType::TOGGLE && settings[i].valuePtr != nullptr) {
+          const bool value = SETTINGS.*(settings[i].valuePtr);
+          valueText = value ? "ON" : "OFF";
+        } else if (settings[i].type == SettingType::ENUM && settings[i].valuePtr != nullptr) {
+          const uint8_t value = SETTINGS.*(settings[i].valuePtr);
+          valueText = settings[i].enumValues[value];
+        } else if (settings[i].type == SettingType::VALUE && settings[i].valuePtr != nullptr) {
+          valueText = std::to_string(SETTINGS.*(settings[i].valuePtr));
+        }
+        return valueText;
+      });
+
+  // Draw version text
+  renderer.drawText(SMALL_FONT_ID,
+                    pageWidth - metrics.versionTextRightX - renderer.getTextWidth(SMALL_FONT_ID, CROSSPOINT_VERSION),
+                    metrics.versionTextY, CROSSPOINT_VERSION);
 
   // Draw help text
-  const auto labels = mappedInput.mapLabels("« 뒤로", "선택", "", "");
-  renderer.drawButtonHints(UI_10_FONT_ID, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  const auto labels = mappedInput.mapLabels("« 뒤로", "전환", "위", "아래");
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   // Always use standard refresh for settings screen
   renderer.displayBuffer();

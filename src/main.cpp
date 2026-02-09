@@ -3,7 +3,7 @@
 #include <GfxRenderer.h>
 #include <HalDisplay.h>
 #include <HalGPIO.h>
-#include <SDCardManager.h>
+#include <HalStorage.h>
 #include <SPI.h>
 #include <SdFontFamily.h>
 #include <builtinFonts/all.h>
@@ -21,11 +21,14 @@
 #include "activities/browser/OpdsBookBrowserActivity.h"
 #include "activities/home/HomeActivity.h"
 #include "activities/home/MyLibraryActivity.h"
+#include "activities/home/RecentBooksActivity.h"
 #include "activities/network/CrossPointWebServerActivity.h"
 #include "activities/reader/ReaderActivity.h"
 #include "activities/settings/SettingsActivity.h"
 #include "activities/util/FullScreenMessageActivity.h"
+#include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/ButtonNavigator.h"
 
 HalDisplay display;
 HalGPIO gpio;
@@ -50,7 +53,7 @@ constexpr char FONT_DIR[] = "/.crosspoint/fonts";
 bool trySdFontLoad(GfxRenderer& renderer, int fontId, const char* name, const char* regularPath,
                    const char* boldPath = nullptr) {
   // First check if the file exists before attempting to create SdFontFamily
-  if (!SdMan.exists(regularPath)) {
+  if (!Storage.exists(regularPath)) {
     Serial.printf("[%lu] [FNT] %s not found: %s\n", millis(), name, regularPath);
     return false;
   }
@@ -99,7 +102,7 @@ bool loadCustomReaderFont(GfxRenderer& gfxRenderer) {
   const char* fontPath = SETTINGS.customFontPath;
   Serial.printf("[%lu] [FNT] Loading custom font: %s\n", millis(), fontPath);
 
-  if (!SdMan.exists(fontPath)) {
+  if (!Storage.exists(fontPath)) {
     Serial.printf("[%lu] [FNT] Custom font file not found: %s\n", millis(), fontPath);
     // Clear invalid font path
     SETTINGS.customFontPath[0] = '\0';
@@ -216,6 +219,8 @@ void waitForPowerRelease() {
 
 // Enter deep sleep mode
 void enterDeepSleep() {
+  APP_STATE.lastSleepFromReader = currentActivity && currentActivity->isReaderActivity();
+  APP_STATE.saveToFile();
   exitActivity();
   enterNewActivity(new SleepActivity(renderer, mappedInputManager));
 
@@ -227,13 +232,13 @@ void enterDeepSleep() {
 }
 
 void onGoHome();
-void onGoToMyLibraryWithTab(const std::string& path, MyLibraryActivity::Tab tab);
-void onGoToReader(const std::string& initialEpubPath, MyLibraryActivity::Tab fromTab) {
+void onGoToMyLibraryWithPath(const std::string& path);
+void onGoToRecentBooks();
+void onGoToReader(const std::string& initialEpubPath) {
   exitActivity();
   enterNewActivity(
-      new ReaderActivity(renderer, mappedInputManager, initialEpubPath, fromTab, onGoHome, onGoToMyLibraryWithTab));
+      new ReaderActivity(renderer, mappedInputManager, initialEpubPath, onGoHome, onGoToMyLibraryWithPath));
 }
-void onContinueReading() { onGoToReader(APP_STATE.openEpubPath, MyLibraryActivity::Tab::Recent); }
 
 void onGoToFileTransfer() {
   exitActivity();
@@ -250,9 +255,14 @@ void onGoToMyLibrary() {
   enterNewActivity(new MyLibraryActivity(renderer, mappedInputManager, onGoHome, onGoToReader));
 }
 
-void onGoToMyLibraryWithTab(const std::string& path, MyLibraryActivity::Tab tab) {
+void onGoToRecentBooks() {
   exitActivity();
-  enterNewActivity(new MyLibraryActivity(renderer, mappedInputManager, onGoHome, onGoToReader, tab, path));
+  enterNewActivity(new RecentBooksActivity(renderer, mappedInputManager, onGoHome, onGoToReader));
+}
+
+void onGoToMyLibraryWithPath(const std::string& path) {
+  exitActivity();
+  enterNewActivity(new MyLibraryActivity(renderer, mappedInputManager, onGoHome, onGoToReader, path));
 }
 
 void onGoToBrowser() {
@@ -262,12 +272,13 @@ void onGoToBrowser() {
 
 void onGoHome() {
   exitActivity();
-  enterNewActivity(new HomeActivity(renderer, mappedInputManager, onContinueReading, onGoToMyLibrary, onGoToSettings,
-                                    onGoToFileTransfer, onGoToBrowser));
+  enterNewActivity(new HomeActivity(renderer, mappedInputManager, onGoToReader, onGoToMyLibrary, onGoToRecentBooks,
+                                    onGoToSettings, onGoToFileTransfer, onGoToBrowser));
 }
 
 void setupDisplayAndFonts() {
   display.begin();
+  renderer.begin();
   Serial.printf("[%lu] [   ] Display initialized\n", millis());
 
   // UI font (Pretendard 10pt)
@@ -308,7 +319,7 @@ void setup() {
 
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
-  if (!SdMan.begin()) {
+  if (!Storage.begin()) {
     Serial.printf("[%lu] [   ] SD card initialization failed\n", millis());
     setupDisplayAndFonts();
     exitActivity();
@@ -318,11 +329,25 @@ void setup() {
 
   SETTINGS.loadFromFile();
   KOREADER_STORE.loadFromFile();
+  UITheme::getInstance().reload();
+  ButtonNavigator::setMappedInputManager(mappedInputManager);
 
-  if (gpio.isWakeupByPowerButton()) {
-    // For normal wakeups, verify power button press duration
-    Serial.printf("[%lu] [   ] Verifying power button press duration\n", millis());
-    verifyPowerButtonDuration();
+  switch (gpio.getWakeupReason()) {
+    case HalGPIO::WakeupReason::PowerButton:
+      // For normal wakeups, verify power button press duration
+      Serial.printf("[%lu] [   ] Verifying power button press duration\n", millis());
+      verifyPowerButtonDuration();
+      break;
+    case HalGPIO::WakeupReason::AfterUSBPower:
+      // If USB power caused a cold boot, go back to sleep
+      Serial.printf("[%lu] [   ] Wakeup reason: After USB Power\n", millis());
+      gpio.startDeepSleep();
+      break;
+    case HalGPIO::WakeupReason::AfterFlash:
+      // After flashing, just proceed to boot
+    case HalGPIO::WakeupReason::Other:
+    default:
+      break;
   }
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
@@ -336,15 +361,18 @@ void setup() {
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
 
-  if (APP_STATE.openEpubPath.empty()) {
+  // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
+  // crashed (indicated by readerActivityLoadCount > 0)
+  if (APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||
+      mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
     onGoHome();
   } else {
     // Clear app state to avoid getting into a boot loop if the epub doesn't load
     const auto path = APP_STATE.openEpubPath;
     APP_STATE.openEpubPath = "";
-    APP_STATE.lastSleepImage = 0;
+    APP_STATE.readerActivityLoadCount++;
     APP_STATE.saveToFile();
-    onGoToReader(path, MyLibraryActivity::Tab::Recent);
+    onGoToReader(path);
   }
 
   // Ensure we're not still holding the power button before leaving setup
@@ -357,6 +385,8 @@ void loop() {
   static unsigned long lastMemPrint = 0;
 
   gpio.update();
+
+  renderer.setFadingFix(SETTINGS.fadingFix);
 
   if (Serial && millis() - lastMemPrint >= 10000) {
     Serial.printf("[%lu] [MEM] Free: %d bytes, Total: %d bytes, Min Free: %d bytes\n", millis(), ESP.getFreeHeap(),

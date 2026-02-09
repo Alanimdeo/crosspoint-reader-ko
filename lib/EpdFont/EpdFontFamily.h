@@ -4,7 +4,7 @@
 class EpdFontFamily {
  public:
   // Font style enum - inside class for upstream compatibility (EpdFontFamily::BOLD)
-  enum Style : uint8_t { REGULAR = 0, BOLD = 1, ITALIC = 2, BOLD_ITALIC = 3 };
+  enum Style : uint8_t { REGULAR = 0, BOLD = 1, ITALIC = 2, BOLD_ITALIC = 3, UNDERLINE = 4 };
 
   explicit EpdFontFamily(const EpdFont* regular, const EpdFont* bold = nullptr, const EpdFont* italic = nullptr,
                          const EpdFont* boldItalic = nullptr)
@@ -35,3 +35,4 @@ constexpr auto REGULAR = EpdFontFamily::REGULAR;
 constexpr auto BOLD = EpdFontFamily::BOLD;
 constexpr auto ITALIC = EpdFontFamily::ITALIC;
 constexpr auto BOLD_ITALIC = EpdFontFamily::BOLD_ITALIC;
+constexpr auto UNDERLINE = EpdFontFamily::UNDERLINE;

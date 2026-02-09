@@ -8,6 +8,7 @@
 #include "MappedInputManager.h"
 #include "WifiCredentialStore.h"
 #include "activities/util/KeyboardEntryActivity.h"
+#include "components/UITheme.h"
 #include "fontIds.h"
 
 void WifiSelectionActivity::taskTrampoline(void* param) {
@@ -267,9 +268,9 @@ void WifiSelectionActivity::checkConnectionStatus() {
   }
 
   if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
-    connectionError = "Connection failed";
+    connectionError = "Error: General failure";
     if (status == WL_NO_SSID_AVAIL) {
-      connectionError = "Network not found";
+      connectionError = "Error: Network not found";
     }
     state = WifiSelectionState::CONNECTION_FAILED;
     updateRequired = true;
@@ -279,7 +280,7 @@ void WifiSelectionActivity::checkConnectionStatus() {
   // Check for timeout
   if (millis() - connectionStartTime > CONNECTION_TIMEOUT_MS) {
     WiFi.disconnect();
-    connectionError = "Connection timeout";
+    connectionError = "Error: Connection timeout";
     state = WifiSelectionState::CONNECTION_FAILED;
     updateRequired = true;
     return;
@@ -420,20 +421,16 @@ void WifiSelectionActivity::loop() {
       return;
     }
 
-    // Handle UP/DOWN navigation
-    if (mappedInput.wasPressed(MappedInputManager::Button::Up) ||
-        mappedInput.wasPressed(MappedInputManager::Button::Left)) {
-      if (selectedNetworkIndex > 0) {
-        selectedNetworkIndex--;
-        updateRequired = true;
-      }
-    } else if (mappedInput.wasPressed(MappedInputManager::Button::Down) ||
-               mappedInput.wasPressed(MappedInputManager::Button::Right)) {
-      if (!networks.empty() && selectedNetworkIndex < static_cast<int>(networks.size()) - 1) {
-        selectedNetworkIndex++;
-        updateRequired = true;
-      }
-    }
+    // Handle navigation
+    buttonNavigator.onNext([this] {
+      selectedNetworkIndex = ButtonNavigator::nextIndex(selectedNetworkIndex, networks.size());
+      updateRequired = true;
+    });
+
+    buttonNavigator.onPrevious([this] {
+      selectedNetworkIndex = ButtonNavigator::previousIndex(selectedNetworkIndex, networks.size());
+      updateRequired = true;
+    });
   }
 }
 
@@ -520,10 +517,8 @@ void WifiSelectionActivity::renderNetworkList() const {
     // No networks found or scan failed
     const auto height = renderer.getLineHeight(UI_10_FONT_ID);
     const auto top = (pageHeight - height) / 2;
-    // renderer.drawCenteredText(UI_10_FONT_ID, top, "No networks found");
     renderer.drawCenteredText(UI_10_FONT_ID, top, "네트워크를 찾을 수 없음");
-    // renderer.drawCenteredText(SMALL_FONT_ID, top + height + 10, "Press OK to scan again");
-    renderer.drawCenteredText(SMALL_FONT_ID, top + height + 10, "확인을 눌러 다시 스캔");
+    renderer.drawCenteredText(SMALL_FONT_ID, top + height + 10, "연결을 눌러 다시 스캔");
   } else {
     // Calculate how many networks we can display
     constexpr int startY = 60;
@@ -549,8 +544,8 @@ void WifiSelectionActivity::renderNetworkList() const {
 
       // Draw network name (truncate if too long)
       std::string displayName = network.ssid;
-      if (displayName.length() > 16) {
-        displayName.replace(13, displayName.length() - 13, "...");
+      if (displayName.length() > 33) {
+        displayName.replace(30, displayName.length() - 30, "...");
       }
       renderer.drawText(UI_10_FONT_ID, 20, networkY, displayName.c_str());
 
@@ -588,9 +583,8 @@ void WifiSelectionActivity::renderNetworkList() const {
 
   // Draw help text
   renderer.drawText(SMALL_FONT_ID, 20, pageHeight - 75, "* = Encrypted | + = Saved");
-  // const auto labels = mappedInput.mapLabels("« Back", "Connect", "", "");
   const auto labels = mappedInput.mapLabels("« 뒤로", "연결", "", "");
-  renderer.drawButtonHints(UI_10_FONT_ID, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 
 void WifiSelectionActivity::renderConnecting() const {
@@ -630,9 +624,8 @@ void WifiSelectionActivity::renderConnected() const {
   const std::string ipInfo = "IP Address: " + connectedIP;
   renderer.drawCenteredText(UI_10_FONT_ID, top + 40, ipInfo.c_str());
 
-  // Use centralized button hints (Korean)
   const auto labels = mappedInput.mapLabels("", "계속", "", "");
-  renderer.drawButtonHints(UI_10_FONT_ID, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 
 void WifiSelectionActivity::renderSavePrompt() const {
@@ -678,9 +671,8 @@ void WifiSelectionActivity::renderSavePrompt() const {
     renderer.drawText(UI_10_FONT_ID, startX + buttonWidth + buttonSpacing + 4, buttonY, "아니요");
   }
 
-  // Use centralized button hints (Korean)
   const auto labels = mappedInput.mapLabels("« 건너뛰기", "선택", "왼쪽", "오른쪽");
-  renderer.drawButtonHints(UI_10_FONT_ID, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 
 void WifiSelectionActivity::renderConnectionFailed() const {
@@ -691,9 +683,8 @@ void WifiSelectionActivity::renderConnectionFailed() const {
   // renderer.drawCenteredText(UI_12_FONT_ID, top - 20, "Connection Failed", true, EpdFontFamily::BOLD);
   renderer.drawCenteredText(UI_12_FONT_ID, top - 20, "연결 실패", true, EpdFontFamily::BOLD);
   renderer.drawCenteredText(UI_10_FONT_ID, top + 20, connectionError.c_str());
-  // Use centralized button hints (Korean)
   const auto labels = mappedInput.mapLabels("« 뒤로", "계속", "", "");
-  renderer.drawButtonHints(UI_10_FONT_ID, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 
 void WifiSelectionActivity::renderForgetPrompt() const {
@@ -702,7 +693,6 @@ void WifiSelectionActivity::renderForgetPrompt() const {
   const auto height = renderer.getLineHeight(UI_10_FONT_ID);
   const auto top = (pageHeight - height * 3) / 2;
 
-  // renderer.drawCenteredText(UI_12_FONT_ID, top - 40, "Forget Network?", true, EpdFontFamily::BOLD);
   renderer.drawCenteredText(UI_12_FONT_ID, top - 40, "네트워크 지우기?", true, EpdFontFamily::BOLD);
 
   std::string ssidInfo = "Network: " + selectedSSID;
@@ -711,8 +701,7 @@ void WifiSelectionActivity::renderForgetPrompt() const {
   }
   renderer.drawCenteredText(UI_10_FONT_ID, top, ssidInfo.c_str());
 
-  // renderer.drawCenteredText(UI_10_FONT_ID, top + 40, "Remove saved password?");
-  renderer.drawCenteredText(UI_10_FONT_ID, top + 40, "저장된 비밀번호를 삭제하시겠습니까?");
+  renderer.drawCenteredText(UI_10_FONT_ID, top + 40, "네트워크를 삭제하고 비밀번호를 지울까요?");
 
   // Draw Cancel/Forget network buttons
   const int buttonY = top + 80;
@@ -735,7 +724,6 @@ void WifiSelectionActivity::renderForgetPrompt() const {
     renderer.drawText(UI_10_FONT_ID, startX + buttonWidth + buttonSpacing + 4, buttonY, "네트워크 삭제");
   }
 
-  // Use centralized button hints (Korean)
   const auto labels = mappedInput.mapLabels("« 뒤로", "선택", "왼쪽", "오른쪽");
-  renderer.drawButtonHints(UI_10_FONT_ID, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }

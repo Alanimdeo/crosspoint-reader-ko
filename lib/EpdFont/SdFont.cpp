@@ -1,8 +1,8 @@
 #include "SdFont.h"
 
 #include <Arduino.h>
+#include <HalStorage.h>
 #include <HardwareSerial.h>
-#include <SDCardManager.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -202,7 +202,7 @@ bool SdFontData::load() {
   }
 
   // Open font file
-  if (!SdMan.openFileForRead("SdFont", filePath.c_str(), fontFile)) {
+  if (!Storage.openFileForRead("SdFont", filePath.c_str(), fontFile)) {
     Serial.printf("[%lu] [SdFont] Failed to open font file: %s\n", millis(), filePath.c_str());
     return false;
   }
@@ -300,7 +300,7 @@ bool SdFontData::ensureFileOpen() const {
   if (fontFile && fontFile.isOpen()) {
     return true;
   }
-  return SdMan.openFileForRead("SdFont", filePath.c_str(), fontFile);
+  return Storage.openFileForRead("SdFont", filePath.c_str(), fontFile);
 }
 
 bool SdFontData::loadGlyphFromSD(int glyphIndex, EpdGlyph* outGlyph) const {
