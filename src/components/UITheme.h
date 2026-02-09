@@ -23,8 +23,8 @@ class UITheme {
   static std::string getCoverThumbPath(std::string coverBmpPath, int coverHeight);
 
  private:
-  const ThemeMetrics* currentMetrics;
-  const BaseTheme* currentTheme;
+  const ThemeMetrics* currentMetrics = nullptr;
+  const BaseTheme* currentTheme = nullptr;
 };
 
 // Helper macro to access current theme

@@ -10,9 +10,10 @@
 
 UITheme UITheme::instance;
 
-UITheme::UITheme() {
-  auto themeType = static_cast<CrossPointSettings::UI_THEME>(SETTINGS.uiTheme);
-  setTheme(themeType);
+UITheme::UITheme() : currentMetrics(nullptr), currentTheme(nullptr) {
+  // Defer initialization to reload() which is called in setup()
+  // Allocating memory (new BaseTheme/LyraTheme) during static initialization
+  // crashes on ESP32-C3 because the heap is not ready yet.
 }
 
 void UITheme::reload() {
