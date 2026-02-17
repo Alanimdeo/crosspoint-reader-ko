@@ -50,7 +50,14 @@ bool CrossPointState::loadFromFile() {
     return false;
   }
 
-  serialization::readString(inputFile, openEpubPath);
+  if (!serialization::readString(inputFile, openEpubPath)) {
+    Serial.printf("[%lu] [STA] Corrupted string in state file, deleting\n", millis());
+    inputFile.close();
+    Storage.remove(STATE_FILE);
+    openEpubPath.clear();
+    return false;
+  }
+
   if (version >= 2) {
     serialization::readPod(inputFile, lastSleepImage);
   } else {

@@ -286,7 +286,7 @@ void TxtReaderActivity::buildPageIndex() {
 
   Serial.printf("[%lu] [TRS] Building page index for %zu bytes...\n", millis(), fileSize);
 
-  GUI.drawPopup(renderer, "Indexing...");
+  GUI.drawPopup(renderer, "인덱싱 중...");
 
   while (offset < fileSize) {
     std::vector<std::string> tempLines;

@@ -230,6 +230,66 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
     return false;
   }
 
+  // === First pass: scan entire JPEG to determine global brightness range ===
+  // This enables auto-contrast for covers with narrow brightness range (e.g. very light images)
+  bool useAutoContrast = false;
+  uint8_t acMin = 0;
+  uint16_t acScale_fp = 256;  // 1.0 in 8.8 fixed point (256 = no scaling)
+  {
+    uint8_t globalMin = 255, globalMax = 0;
+    const int acMcuW = imageInfo.m_MCUWidth;
+    const int acMcuH = imageInfo.m_MCUHeight;
+    bool ok = true;
+    for (int mcuY = 0; mcuY < imageInfo.m_MCUSPerCol && ok; mcuY++) {
+      for (int mcuX = 0; mcuX < imageInfo.m_MCUSPerRow && ok; mcuX++) {
+        if (pjpeg_decode_mcu() != 0) {
+          ok = false;
+          break;
+        }
+        for (int by = 0; by < acMcuH; by++) {
+          const int py = mcuY * acMcuH + by;
+          if (py >= imageInfo.m_height) continue;
+          for (int bx = 0; bx < acMcuW; bx++) {
+            const int px = mcuX * acMcuW + bx;
+            if (px >= imageInfo.m_width) continue;
+            const int bi = (by / 8) * (acMcuW / 8) + (bx / 8);
+            const int po = bi * 64 + (by % 8) * 8 + (bx % 8);
+            uint8_t g;
+            if (imageInfo.m_comps == 1) {
+              g = imageInfo.m_pMCUBufR[po];
+            } else {
+              g = (imageInfo.m_pMCUBufR[po] * 25 + imageInfo.m_pMCUBufG[po] * 50 + imageInfo.m_pMCUBufB[po] * 25) / 100;
+            }
+            if (g < globalMin) globalMin = g;
+            if (g > globalMax) globalMax = g;
+          }
+        }
+      }
+    }
+    if (ok) {
+      const uint8_t range = globalMax - globalMin;
+      if (range > 0 && range < 200) {
+        useAutoContrast = true;
+        acMin = globalMin;
+        acScale_fp = static_cast<uint16_t>((255u * 256u) / range);
+        Serial.printf("[%lu] [JPG] Auto-contrast: global min=%d max=%d range=%d, stretching\n", millis(), globalMin,
+                      globalMax, range);
+      } else {
+        Serial.printf("[%lu] [JPG] Brightness range OK: min=%d max=%d range=%d\n", millis(), globalMin, globalMax,
+                      range);
+      }
+    }
+    // Reset JPEG file and decoder for second pass
+    jpegFile.seek(0);
+    context.bufferPos = 0;
+    context.bufferFilled = 0;
+    const unsigned char reinitStatus = pjpeg_decode_init(&imageInfo, jpegReadCallback, &context, 0);
+    if (reinitStatus != 0) {
+      Serial.printf("[%lu] [JPG] JPEG re-init for second pass failed: %d\n", millis(), reinitStatus);
+      return false;
+    }
+  }
+
   // Calculate output dimensions (pre-scale to fit display exactly)
   int outWidth = imageInfo.m_width;
   int outHeight = imageInfo.m_height;
@@ -340,6 +400,8 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
 
   // Process MCUs row-by-row and write to BMP as we go (top-down)
   const int mcuPixelWidth = imageInfo.m_MCUWidth;
+  int totalRowsWritten = 0;
+  bool writeError = false;
 
   for (int mcuY = 0; mcuY < imageInfo.m_MCUSPerCol; mcuY++) {
     // Clear the MCU row buffer
@@ -388,6 +450,17 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
 
           mcuRowBuffer[blockY * imageInfo.m_width + pixelX] = gray;
         }
+      }
+    }
+
+    // Apply auto-contrast stretching to the MCU row buffer
+    if (useAutoContrast) {
+      const int totalPixels = mcuPixelHeight * imageInfo.m_width;
+      for (int i = 0; i < totalPixels; i++) {
+        int stretched = (static_cast<int>(mcuRowBuffer[i] - acMin) * acScale_fp) >> 8;
+        if (stretched < 0) stretched = 0;
+        if (stretched > 255) stretched = 255;
+        mcuRowBuffer[i] = static_cast<uint8_t>(stretched);
       }
     }
 
@@ -440,7 +513,13 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
           else if (fsDitherer)
             fsDitherer->nextRow();
         }
-        bmpOut.write(rowBuffer, bytesPerRow);
+        const size_t written = bmpOut.write(rowBuffer, bytesPerRow);
+        if (written != static_cast<size_t>(bytesPerRow)) {
+          Serial.printf("[%lu] [JPG] Write error at row %d: wrote %d of %d bytes\n", millis(), totalRowsWritten,
+                        written, bytesPerRow);
+          writeError = true;
+        }
+        totalRowsWritten++;
       } else {
         // Fixed-point area averaging for exact fit scaling
         // For each output pixel X, accumulate source pixels that map to it
@@ -517,7 +596,13 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
               fsDitherer->nextRow();
           }
 
-          bmpOut.write(rowBuffer, bytesPerRow);
+          const size_t written = bmpOut.write(rowBuffer, bytesPerRow);
+          if (written != static_cast<size_t>(bytesPerRow)) {
+            Serial.printf("[%lu] [JPG] Write error at row %d: wrote %d of %d bytes\n", millis(), totalRowsWritten,
+                          written, bytesPerRow);
+            writeError = true;
+          }
+          totalRowsWritten++;
           currentOutY++;
 
           // Reset accumulators for next output row
@@ -550,7 +635,14 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(FsFile& jpegFile, Print& bm
   free(mcuRowBuffer);
   free(rowBuffer);
 
-  Serial.printf("[%lu] [JPG] Successfully converted JPEG to BMP\n", millis());
+  if (totalRowsWritten != outHeight) {
+    Serial.printf("[%lu] [JPG] WARNING: wrote %d rows but expected %d (scaling: %s)\n", millis(), totalRowsWritten,
+                  outHeight, needsScaling ? "yes" : "no");
+  }
+  if (writeError) {
+    Serial.printf("[%lu] [JPG] WARNING: write errors detected during BMP output\n", millis());
+  }
+  Serial.printf("[%lu] [JPG] Successfully converted JPEG to BMP (%d rows written)\n", millis(), totalRowsWritten);
   return true;
 }
 

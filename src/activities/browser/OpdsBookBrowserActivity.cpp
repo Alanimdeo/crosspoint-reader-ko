@@ -80,7 +80,7 @@ void OpdsBookBrowserActivity::loop() {
         // WiFi connected - just retry fetching the feed
         Serial.printf("[%lu] [OPDS] Retry: WiFi connected, retrying fetch\n", millis());
         state = BrowserState::LOADING;
-        statusMessage = "Loading...";
+        statusMessage = "로딩 중...";
         updateRequired = true;
         fetchFeed(currentPath);
       } else {
@@ -307,7 +307,7 @@ void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry) {
   currentPath = entry.href;
 
   state = BrowserState::LOADING;
-  statusMessage = "Loading...";
+  statusMessage = "로딩 중...";
   entries.clear();
   selectorIndex = 0;
   updateRequired = true;
@@ -325,7 +325,7 @@ void OpdsBookBrowserActivity::navigateBack() {
     navigationHistory.pop_back();
 
     state = BrowserState::LOADING;
-    statusMessage = "Loading...";
+    statusMessage = "로딩 중...";
     entries.clear();
     selectorIndex = 0;
     updateRequired = true;
@@ -381,7 +381,7 @@ void OpdsBookBrowserActivity::checkAndConnectWifi() {
   // Already connected? Verify connection is valid by checking IP
   if (WiFi.status() == WL_CONNECTED && WiFi.localIP() != IPAddress(0, 0, 0, 0)) {
     state = BrowserState::LOADING;
-    statusMessage = "Loading...";
+    statusMessage = "로딩 중...";
     updateRequired = true;
     fetchFeed(currentPath);
     return;
@@ -405,7 +405,7 @@ void OpdsBookBrowserActivity::onWifiSelectionComplete(const bool connected) {
   if (connected) {
     Serial.printf("[%lu] [OPDS] WiFi connected via selection, fetching feed\n", millis());
     state = BrowserState::LOADING;
-    statusMessage = "Loading...";
+    statusMessage = "로딩 중...";
     updateRequired = true;
     fetchFeed(currentPath);
   } else {

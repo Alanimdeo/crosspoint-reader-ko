@@ -543,15 +543,19 @@ void EpubReaderActivity::renderScreen() {
   if (currentSpineIndex < 0) {
     currentSpineIndex = 0;
   }
-  // based bounds of book, show end of book screen
+  // corrupted progress data (spine index beyond book bounds) - reset to start
   if (currentSpineIndex > epub->getSpineItemsCount()) {
-    currentSpineIndex = epub->getSpineItemsCount();
+    Serial.printf("[%lu] [ERS] Spine index %d out of range (max %d), resetting to start\n", millis(), currentSpineIndex,
+                  epub->getSpineItemsCount());
+    currentSpineIndex = 0;
+    nextPageNumber = 0;
+    section.reset();
   }
 
   // Show end of book screen
   if (currentSpineIndex == epub->getSpineItemsCount()) {
     renderer.clearScreen();
-    renderer.drawCenteredText(UI_12_FONT_ID, 300, "End of book", true, EpdFontFamily::BOLD);
+    renderer.drawCenteredText(UI_12_FONT_ID, 300, "책의 끝", true, EpdFontFamily::BOLD);
     renderer.displayBuffer();
     return;
   }
@@ -580,6 +584,11 @@ void EpubReaderActivity::renderScreen() {
   if (!section) {
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
     Serial.printf("[%lu] [ERS] Loading file: %s, index: %d\n", millis(), filepath.c_str(), currentSpineIndex);
+
+    // Show loading indicator while section is being loaded
+    renderer.clearScreen();
+    GUI.drawPopup(renderer, "로딩 중...");
+    renderer.displayBuffer();
     section = std::unique_ptr<Section>(new Section(epub, currentSpineIndex, renderer));
 
     const uint16_t viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;

@@ -1,5 +1,6 @@
 #include "Epub.h"
 
+#include <Bitmap.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <HardwareSerial.h>
@@ -453,14 +454,39 @@ const std::string& Epub::getLanguage() const {
 }
 
 std::string Epub::getCoverBmpPath(bool cropped) const {
-  const auto coverFileName = std::string("cover") + (cropped ? "_crop" : "");
+  // v3: two-pass auto-contrast with global brightness analysis
+  const auto coverFileName = std::string("cover3") + (cropped ? "_crop" : "");
   return cachePath + "/" + coverFileName + ".bmp";
 }
 
 bool Epub::generateCoverBmp(bool cropped) const {
-  // Already generated, return true
-  if (Storage.exists(getCoverBmpPath(cropped).c_str())) {
-    return true;
+  const auto bmpPath = getCoverBmpPath(cropped);
+
+  // Check if already generated and valid (file must exist and not be truncated)
+  if (Storage.exists(bmpPath.c_str())) {
+    FsFile existingBmp;
+    if (Storage.openFileForRead("EBP", bmpPath, existingBmp)) {
+      const auto fileSize = existingBmp.size();
+      if (fileSize >= 74) {
+        Bitmap bmpCheck(existingBmp);
+        if (bmpCheck.parseHeaders() == BmpReaderError::Ok) {
+          const uint32_t expectedSize = static_cast<uint32_t>(bmpCheck.getRowBytes()) * bmpCheck.getHeight() + 70;
+          Serial.printf("[%lu] [EBP] Cache check: %dx%d %dbpp, rowBytes=%d, fileSize=%lu, expected=%lu\n", millis(),
+                        bmpCheck.getWidth(), bmpCheck.getHeight(), bmpCheck.getBpp(), bmpCheck.getRowBytes(), fileSize,
+                        expectedSize);
+          if (fileSize >= expectedSize) {
+            existingBmp.close();
+            return true;
+          }
+          Serial.printf("[%lu] [EBP] Cached cover BMP truncated (%lu < %lu bytes), regenerating\n", millis(), fileSize,
+                        expectedSize);
+        }
+      } else {
+        Serial.printf("[%lu] [EBP] Cached cover BMP too small (%lu bytes), regenerating\n", millis(), fileSize);
+      }
+      existingBmp.close();
+      Storage.remove(bmpPath.c_str());
+    }
   }
 
   if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {
@@ -483,7 +509,12 @@ bool Epub::generateCoverBmp(bool cropped) const {
     if (!Storage.openFileForWrite("EBP", coverJpgTempPath, coverJpg)) {
       return false;
     }
-    readItemContentsToStream(coverImageHref, coverJpg, 1024);
+    if (!readItemContentsToStream(coverImageHref, coverJpg, 1024)) {
+      Serial.printf("[%lu] [EBP] Failed to extract cover image from epub\n", millis());
+      coverJpg.close();
+      Storage.remove(coverJpgTempPath.c_str());
+      return false;
+    }
     coverJpg.close();
 
     if (!Storage.openFileForRead("EBP", coverJpgTempPath, coverJpg)) {
@@ -491,7 +522,7 @@ bool Epub::generateCoverBmp(bool cropped) const {
     }
 
     FsFile coverBmp;
-    if (!Storage.openFileForWrite("EBP", getCoverBmpPath(cropped), coverBmp)) {
+    if (!Storage.openFileForWrite("EBP", bmpPath, coverBmp)) {
       coverJpg.close();
       return false;
     }
@@ -502,10 +533,30 @@ bool Epub::generateCoverBmp(bool cropped) const {
 
     if (!success) {
       Serial.printf("[%lu] [EBP] Failed to generate BMP from JPG cover image\n", millis());
-      Storage.remove(getCoverBmpPath(cropped).c_str());
+      Storage.remove(bmpPath.c_str());
+      return false;
     }
-    Serial.printf("[%lu] [EBP] Generated BMP from JPG cover image, success: %s\n", millis(), success ? "yes" : "no");
-    return success;
+
+    // Validate output BMP isn't truncated (e.g. from SD card write failure)
+    FsFile verifyBmp;
+    if (Storage.openFileForRead("EBP", bmpPath, verifyBmp)) {
+      const auto fileSize = verifyBmp.size();
+      Bitmap bmpCheck(verifyBmp);
+      if (bmpCheck.parseHeaders() == BmpReaderError::Ok) {
+        const uint32_t expectedSize = static_cast<uint32_t>(bmpCheck.getRowBytes()) * bmpCheck.getHeight() + 70;
+        if (fileSize < expectedSize) {
+          Serial.printf("[%lu] [EBP] Generated cover BMP truncated: %lu bytes < expected %lu, deleting\n", millis(),
+                        fileSize, expectedSize);
+          verifyBmp.close();
+          Storage.remove(bmpPath.c_str());
+          return false;
+        }
+      }
+      verifyBmp.close();
+    }
+
+    Serial.printf("[%lu] [EBP] Generated BMP from JPG cover image successfully\n", millis());
+    return true;
   } else {
     Serial.printf("[%lu] [EBP] Cover image is not a JPG, skipping\n", millis());
   }
@@ -539,7 +590,12 @@ bool Epub::generateThumbBmp(int height) const {
     if (!Storage.openFileForWrite("EBP", coverJpgTempPath, coverJpg)) {
       return false;
     }
-    readItemContentsToStream(coverImageHref, coverJpg, 1024);
+    if (!readItemContentsToStream(coverImageHref, coverJpg, 1024)) {
+      Serial.printf("[%lu] [EBP] Failed to extract cover image for thumbnail\n", millis());
+      coverJpg.close();
+      Storage.remove(coverJpgTempPath.c_str());
+      return false;
+    }
     coverJpg.close();
 
     if (!Storage.openFileForRead("EBP", coverJpgTempPath, coverJpg)) {

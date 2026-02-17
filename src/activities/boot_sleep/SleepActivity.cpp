@@ -128,8 +128,8 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
   const auto pageHeight = renderer.getScreenHeight();
   float cropX = 0, cropY = 0;
 
-  Serial.printf("[%lu] [SLP] bitmap %d x %d, screen %d x %d\n", millis(), bitmap.getWidth(), bitmap.getHeight(),
-                pageWidth, pageHeight);
+  Serial.printf("[%lu] [SLP] bitmap %d x %d, bpp %d, screen %d x %d\n", millis(), bitmap.getWidth(), bitmap.getHeight(),
+                bitmap.getBpp(), pageWidth, pageHeight);
   if (bitmap.getWidth() > pageWidth || bitmap.getHeight() > pageHeight) {
     // image will scale, make sure placement is right
     float ratio = static_cast<float>(bitmap.getWidth()) / static_cast<float>(bitmap.getHeight());
@@ -178,18 +178,31 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap) const {
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 
   if (hasGreyscale) {
-    bitmap.rewindToData();
+    // Greyscale rendering reads the BMP file 2 more times. If rewind fails,
+    // skip greyscale to preserve the BW image already displayed above.
+    if (bitmap.rewindToData() != BmpReaderError::Ok) {
+      Serial.printf("[%lu] [SLP] Failed to rewind for greyscale LSB, skipping greyscale\n", millis());
+      return;
+    }
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
     renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
     renderer.copyGrayscaleLsbBuffers();
 
-    bitmap.rewindToData();
+    if (bitmap.rewindToData() != BmpReaderError::Ok) {
+      Serial.printf("[%lu] [SLP] Failed to rewind for greyscale MSB, skipping greyscale\n", millis());
+      renderer.setRenderMode(GfxRenderer::BW);
+      return;
+    }
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
     renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY);
     renderer.copyGrayscaleMsbBuffers();
 
+    // Don't use fadingFix for sleep screen: it powers off the display before
+    // greyscale LUT fully settles, causing white screen. deepSleep() handles
+    // the proper power-down sequence afterwards.
+    renderer.setFadingFix(false);
     renderer.displayGrayBuffer();
     renderer.setRenderMode(GfxRenderer::BW);
   }
@@ -245,12 +258,15 @@ void SleepActivity::renderCoverSleepScreen() const {
     coverBmpPath = lastTxt.getCoverBmpPath();
   } else if (StringUtils::checkFileExtension(APP_STATE.openEpubPath, ".epub")) {
     // Handle EPUB file
+    Serial.printf("[%lu] [SLP] Loading epub for cover: %s (free heap: %d)\n", millis(), APP_STATE.openEpubPath.c_str(),
+                  ESP.getFreeHeap());
     Epub lastEpub(APP_STATE.openEpubPath, "/.crosspoint");
     // Skip loading css since we only need metadata here
     if (!lastEpub.load(true, true)) {
       Serial.println("[SLP] Failed to load last epub");
       return (this->*renderNoCoverSleepScreen)();
     }
+    Serial.printf("[%lu] [SLP] Epub loaded, generating cover BMP (free heap: %d)\n", millis(), ESP.getFreeHeap());
 
     if (!lastEpub.generateCoverBmp(cropped)) {
       Serial.println("[SLP] Failed to generate cover bmp");
@@ -258,18 +274,35 @@ void SleepActivity::renderCoverSleepScreen() const {
     }
 
     coverBmpPath = lastEpub.getCoverBmpPath(cropped);
+    Serial.printf("[%lu] [SLP] Cover BMP path: %s\n", millis(), coverBmpPath.c_str());
   } else {
     return (this->*renderNoCoverSleepScreen)();
   }
 
   FsFile file;
   if (Storage.openFileForRead("SLP", coverBmpPath, file)) {
+    const auto fileSize = file.size();
+    Serial.printf("[%lu] [SLP] Cover BMP file size: %lu bytes\n", millis(), fileSize);
     Bitmap bitmap(file);
-    if (bitmap.parseHeaders() == BmpReaderError::Ok) {
-      Serial.printf("[SLP] Rendering sleep cover: %s\n", coverBmpPath.c_str());
+    const auto parseResult = bitmap.parseHeaders();
+    if (parseResult == BmpReaderError::Ok) {
+      // Validate file isn't truncated: check actual size against expected pixel data
+      const uint32_t expectedSize = static_cast<uint32_t>(bitmap.getRowBytes()) * bitmap.getHeight() + 70;
+      if (fileSize < expectedSize) {
+        Serial.printf("[%lu] [SLP] Cover BMP truncated: %lu bytes < expected %lu, deleting\n", millis(), fileSize,
+                      expectedSize);
+        file.close();
+        Storage.remove(coverBmpPath.c_str());
+        return (this->*renderNoCoverSleepScreen)();
+      }
+      Serial.printf("[%lu] [SLP] Rendering sleep cover: %s (%dx%d, %d bpp, free heap: %d)\n", millis(),
+                    coverBmpPath.c_str(), bitmap.getWidth(), bitmap.getHeight(), bitmap.getBpp(), ESP.getFreeHeap());
       renderBitmapSleepScreen(bitmap);
       return;
     }
+    Serial.printf("[%lu] [SLP] Cover BMP parse failed: %s, deleting\n", millis(), Bitmap::errorToString(parseResult));
+    file.close();
+    Storage.remove(coverBmpPath.c_str());
   }
 
   return (this->*renderNoCoverSleepScreen)();
