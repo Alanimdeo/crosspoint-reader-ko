@@ -24,7 +24,7 @@ jobs:
           python-version: '3.14'
 
       - name: Install PlatformIO Core
-        run: pip install --upgrade platformio
+        run: pip install --upgrade platformio esptool
 
       - name: Set version from tag
         run: |
@@ -35,7 +35,7 @@ jobs:
 
       - name: Merge firmware binaries
         run: |
-          python ~/.platformio/packages/tool-esptoolpy/esptool.py --chip esp32c3 merge_bin \
+          esptool.py --chip esp32c3 merge_bin \
             -o .pio/build/gh_release/CrossPoint-${{ github.ref_name }}.bin \
             --flash_mode dio \
             --flash_freq 80m \
