@@ -1,9 +1,6 @@
 #pragma once
 
 #include <Txt.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/semphr.h>
-#include <freertos/task.h>
 
 #include <vector>
 
@@ -12,12 +9,11 @@
 
 class TxtReaderActivity final : public ActivityWithSubactivity {
   std::unique_ptr<Txt> txt;
-  TaskHandle_t displayTaskHandle = nullptr;
-  SemaphoreHandle_t renderingMutex = nullptr;
+
   int currentPage = 0;
   int totalPages = 1;
   int pagesUntilFullRefresh = 0;
-  bool updateRequired = false;
+
   const std::function<void()> onGoBack;
   const std::function<void()> onGoHome;
 
@@ -35,9 +31,6 @@ class TxtReaderActivity final : public ActivityWithSubactivity {
   uint8_t cachedCharacterWrap = 0;
   float cachedLineCompression = 1.0f;
 
-  static void taskTrampoline(void* param);
-  [[noreturn]] void displayTaskLoop();
-  void renderScreen();
   void renderPage();
   void renderStatusBar(int orientedMarginRight, int orientedMarginBottom, int orientedMarginLeft) const;
 
@@ -59,4 +52,5 @@ class TxtReaderActivity final : public ActivityWithSubactivity {
   void onEnter() override;
   void onExit() override;
   void loop() override;
+  void render(Activity::RenderLock&&) override;
 };

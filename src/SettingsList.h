@@ -1,5 +1,7 @@
 #pragma once
 
+#include <I18n.h>
+
 #include <vector>
 
 #include "CrossPointSettings.h"
@@ -12,87 +14,110 @@
 inline std::vector<SettingInfo> getSettingsList() {
   return {
       // --- Display ---
-      SettingInfo::Enum("절전 화면 이미지", &CrossPointSettings::sleepScreen,
-                        {"다크", "라이트", "사용자 정의", "커버", "없음", "커버 + 사용자 정의"}, "sleepScreen",
-                        "Display"),
-      SettingInfo::Enum("절전 화면 커버 모드", &CrossPointSettings::sleepScreenCoverMode, {"맞춤", "자르기"},
-                        "sleepScreenCoverMode", "Display"),
-      SettingInfo::Enum("절전 화면 커버 필터", &CrossPointSettings::sleepScreenCoverFilter, {"없음", "대비", "반전"},
-                        "sleepScreenCoverFilter", "Display"),
-      SettingInfo::Enum("상태 표시줄", &CrossPointSettings::statusBar,
-                        {"없음", "진행 없음", "전체 w/ %", "전체 w/ 진행바", "진행바만", "전체 w/ 챕터바"}, "statusBar",
-                        "Display"),
-      SettingInfo::Enum("배터리 % 숨기기", &CrossPointSettings::hideBatteryPercentage, {"안 함", "리더에서", "항상"},
-                        "hideBatteryPercentage", "Display"),
-      SettingInfo::Enum("새로고침 주기", &CrossPointSettings::refreshFrequency,
-                        {"1 페이지", "5 페이지", "10 페이지", "15 페이지", "30 페이지"}, "refreshFrequency", "Display"),
-      SettingInfo::Enum("UI 테마", &CrossPointSettings::uiTheme, {"클래식", "Lyra"}, "uiTheme", "Display"),
-      SettingInfo::Toggle("햇빛 바램 보정", &CrossPointSettings::fadingFix, "fadingFix", "Display"),
+      SettingInfo::Enum(StrId::STR_SLEEP_SCREEN, &CrossPointSettings::sleepScreen,
+                        {StrId::STR_DARK, StrId::STR_LIGHT, StrId::STR_CUSTOM, StrId::STR_COVER, StrId::STR_NONE_OPT,
+                         StrId::STR_COVER_CUSTOM},
+                        "sleepScreen", StrId::STR_CAT_DISPLAY),
+      SettingInfo::Enum(StrId::STR_SLEEP_COVER_MODE, &CrossPointSettings::sleepScreenCoverMode,
+                        {StrId::STR_FIT, StrId::STR_CROP}, "sleepScreenCoverMode", StrId::STR_CAT_DISPLAY),
+      SettingInfo::Enum(StrId::STR_SLEEP_COVER_FILTER, &CrossPointSettings::sleepScreenCoverFilter,
+                        {StrId::STR_NONE_OPT, StrId::STR_FILTER_CONTRAST, StrId::STR_INVERTED},
+                        "sleepScreenCoverFilter", StrId::STR_CAT_DISPLAY),
+      SettingInfo::Enum(
+          StrId::STR_STATUS_BAR, &CrossPointSettings::statusBar,
+          {StrId::STR_NONE_OPT, StrId::STR_NO_PROGRESS, StrId::STR_STATUS_BAR_FULL_PERCENT,
+           StrId::STR_STATUS_BAR_FULL_BOOK, StrId::STR_STATUS_BAR_BOOK_ONLY, StrId::STR_STATUS_BAR_FULL_CHAPTER},
+          "statusBar", StrId::STR_CAT_DISPLAY),
+      SettingInfo::Enum(StrId::STR_HIDE_BATTERY, &CrossPointSettings::hideBatteryPercentage,
+                        {StrId::STR_NEVER, StrId::STR_IN_READER, StrId::STR_ALWAYS}, "hideBatteryPercentage",
+                        StrId::STR_CAT_DISPLAY),
+      SettingInfo::Enum(
+          StrId::STR_REFRESH_FREQ, &CrossPointSettings::refreshFrequency,
+          {StrId::STR_PAGES_1, StrId::STR_PAGES_5, StrId::STR_PAGES_10, StrId::STR_PAGES_15, StrId::STR_PAGES_30},
+          "refreshFrequency", StrId::STR_CAT_DISPLAY),
+      SettingInfo::Enum(StrId::STR_UI_THEME, &CrossPointSettings::uiTheme,
+                        {StrId::STR_THEME_CLASSIC, StrId::STR_THEME_LYRA, StrId::STR_THEME_LYRA_EXTENDED}, "uiTheme",
+                        StrId::STR_CAT_DISPLAY),
+      SettingInfo::Toggle(StrId::STR_SUNLIGHT_FADING_FIX, &CrossPointSettings::fadingFix, "fadingFix",
+                          StrId::STR_CAT_DISPLAY),
 
       // --- Reader ---
-      SettingInfo::Enum("줄 간격", &CrossPointSettings::lineSpacing, {"좁게", "보통", "넓게"}, "lineSpacing", "Reader"),
-      SettingInfo::Value("화면 여백", &CrossPointSettings::screenMargin, {5, 40, 5}, "screenMargin", "Reader"),
-      SettingInfo::Enum("문단 정렬", &CrossPointSettings::paragraphAlignment,
-                        {"양쪽 정렬", "왼쪽", "가운데", "오른쪽", "책 스타일"}, "paragraphAlignment", "Reader"),
-      SettingInfo::Toggle("책 내장 스타일", &CrossPointSettings::embeddedStyle, "embeddedStyle", "Reader"),
-      SettingInfo::Toggle("하이픈 처리", &CrossPointSettings::hyphenationEnabled, "hyphenationEnabled", "Reader"),
-      SettingInfo::Enum("읽기 방향", &CrossPointSettings::orientation,
-                        {"세로", "가로 시계방향", "반전", "가로 반시계방향"}, "orientation", "Reader"),
-      SettingInfo::Toggle("문단 간격 추가", &CrossPointSettings::extraParagraphSpacing, "extraParagraphSpacing",
-                          "Reader"),
-      SettingInfo::Toggle("첫 줄 들여쓰기", &CrossPointSettings::paragraphIndent, "paragraphIndent", "Reader"),
-      SettingInfo::Toggle("문자 단위 줄바꿈", &CrossPointSettings::characterWrap, "characterWrap", "Reader"),
-      SettingInfo::Toggle("텍스트 안티앨리어싱", &CrossPointSettings::textAntiAliasing, "textAntiAliasing", "Reader"),
+      // fontFamily and fontSize removed: Korean version uses custom SD card fonts via FontSelectionActivity
+      SettingInfo::Enum(StrId::STR_LINE_SPACING, &CrossPointSettings::lineSpacing,
+                        {StrId::STR_TIGHT, StrId::STR_NORMAL, StrId::STR_WIDE}, "lineSpacing", StrId::STR_CAT_READER),
+      SettingInfo::Value(StrId::STR_SCREEN_MARGIN, &CrossPointSettings::screenMargin, {5, 40, 5}, "screenMargin",
+                         StrId::STR_CAT_READER),
+      SettingInfo::Enum(StrId::STR_PARA_ALIGNMENT, &CrossPointSettings::paragraphAlignment,
+                        {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT,
+                         StrId::STR_BOOK_S_STYLE},
+                        "paragraphAlignment", StrId::STR_CAT_READER),
+      SettingInfo::Toggle(StrId::STR_EMBEDDED_STYLE, &CrossPointSettings::embeddedStyle, "embeddedStyle",
+                          StrId::STR_CAT_READER),
+      SettingInfo::Toggle(StrId::STR_HYPHENATION, &CrossPointSettings::hyphenationEnabled, "hyphenationEnabled",
+                          StrId::STR_CAT_READER),
+      SettingInfo::Enum(StrId::STR_ORIENTATION, &CrossPointSettings::orientation,
+                        {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED, StrId::STR_LANDSCAPE_CCW},
+                        "orientation", StrId::STR_CAT_READER),
+      SettingInfo::Toggle(StrId::STR_EXTRA_SPACING, &CrossPointSettings::extraParagraphSpacing, "extraParagraphSpacing",
+                          StrId::STR_CAT_READER),
+      SettingInfo::Toggle(StrId::STR_PARAGRAPH_INDENT, &CrossPointSettings::paragraphIndent, "paragraphIndent",
+                          StrId::STR_CAT_READER),
+      SettingInfo::Toggle(StrId::STR_CHARACTER_WRAP, &CrossPointSettings::characterWrap, "characterWrap",
+                          StrId::STR_CAT_READER),
+      SettingInfo::Toggle(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing, "textAntiAliasing",
+                          StrId::STR_CAT_READER),
 
       // --- Controls ---
-      SettingInfo::Enum("측면 버튼 레이아웃 (리더기)", &CrossPointSettings::sideButtonLayout,
-                        {"이전, 다음", "다음, 이전"}, "sideButtonLayout", "Controls"),
-      SettingInfo::Toggle("길게 누르면 챕터 건너뛰기", &CrossPointSettings::longPressChapterSkip,
-                          "longPressChapterSkip", "Controls"),
-      SettingInfo::Enum("전원 버튼 짧게 누르기", &CrossPointSettings::shortPwrBtn, {"무시", "절전", "페이지 넘기기"},
-                        "shortPwrBtn", "Controls"),
+      SettingInfo::Enum(StrId::STR_SIDE_BTN_LAYOUT, &CrossPointSettings::sideButtonLayout,
+                        {StrId::STR_PREV_NEXT, StrId::STR_NEXT_PREV}, "sideButtonLayout", StrId::STR_CAT_CONTROLS),
+      SettingInfo::Toggle(StrId::STR_LONG_PRESS_SKIP, &CrossPointSettings::longPressChapterSkip, "longPressChapterSkip",
+                          StrId::STR_CAT_CONTROLS),
+      SettingInfo::Enum(StrId::STR_SHORT_PWR_BTN, &CrossPointSettings::shortPwrBtn,
+                        {StrId::STR_IGNORE, StrId::STR_SLEEP, StrId::STR_PAGE_TURN}, "shortPwrBtn",
+                        StrId::STR_CAT_CONTROLS),
 
       // --- System ---
-      SettingInfo::Enum("절전 시간", &CrossPointSettings::sleepTimeout, {"1분", "5분", "10분", "15분", "30분"},
-                        "sleepTimeout", "System"),
+      SettingInfo::Enum(StrId::STR_TIME_TO_SLEEP, &CrossPointSettings::sleepTimeout,
+                        {StrId::STR_MIN_1, StrId::STR_MIN_5, StrId::STR_MIN_10, StrId::STR_MIN_15, StrId::STR_MIN_30},
+                        "sleepTimeout", StrId::STR_CAT_SYSTEM),
 
       // --- KOReader Sync (web-only, uses KOReaderCredentialStore) ---
       SettingInfo::DynamicString(
-          "KOReader 사용자 이름", [] { return KOREADER_STORE.getUsername(); },
+          StrId::STR_KOREADER_USERNAME, [] { return KOREADER_STORE.getUsername(); },
           [](const std::string& v) {
             KOREADER_STORE.setCredentials(v, KOREADER_STORE.getPassword());
             KOREADER_STORE.saveToFile();
           },
-          "koUsername", "KOReader Sync"),
+          "koUsername", StrId::STR_KOREADER_SYNC),
       SettingInfo::DynamicString(
-          "KOReader 비밀번호", [] { return KOREADER_STORE.getPassword(); },
+          StrId::STR_KOREADER_PASSWORD, [] { return KOREADER_STORE.getPassword(); },
           [](const std::string& v) {
             KOREADER_STORE.setCredentials(KOREADER_STORE.getUsername(), v);
             KOREADER_STORE.saveToFile();
           },
-          "koPassword", "KOReader Sync"),
+          "koPassword", StrId::STR_KOREADER_SYNC),
       SettingInfo::DynamicString(
-          "동기화 서버 URL", [] { return KOREADER_STORE.getServerUrl(); },
+          StrId::STR_SYNC_SERVER_URL, [] { return KOREADER_STORE.getServerUrl(); },
           [](const std::string& v) {
             KOREADER_STORE.setServerUrl(v);
             KOREADER_STORE.saveToFile();
           },
-          "koServerUrl", "KOReader Sync"),
+          "koServerUrl", StrId::STR_KOREADER_SYNC),
       SettingInfo::DynamicEnum(
-          "문서 매칭 방식", {"파일 이름", "바이너리"},
+          StrId::STR_DOCUMENT_MATCHING, {StrId::STR_FILENAME, StrId::STR_BINARY},
           [] { return static_cast<uint8_t>(KOREADER_STORE.getMatchMethod()); },
           [](uint8_t v) {
             KOREADER_STORE.setMatchMethod(static_cast<DocumentMatchMethod>(v));
             KOREADER_STORE.saveToFile();
           },
-          "koMatchMethod", "KOReader Sync"),
+          "koMatchMethod", StrId::STR_KOREADER_SYNC),
 
       // --- OPDS Browser (web-only, uses CrossPointSettings char arrays) ---
-      SettingInfo::String("OPDS 서버 URL", SETTINGS.opdsServerUrl, sizeof(SETTINGS.opdsServerUrl), "opdsServerUrl",
-                          "OPDS Browser"),
-      SettingInfo::String("OPDS 사용자 이름", SETTINGS.opdsUsername, sizeof(SETTINGS.opdsUsername), "opdsUsername",
-                          "OPDS Browser"),
-      SettingInfo::String("OPDS 비밀번호", SETTINGS.opdsPassword, sizeof(SETTINGS.opdsPassword), "opdsPassword",
-                          "OPDS Browser"),
+      SettingInfo::String(StrId::STR_OPDS_SERVER_URL, SETTINGS.opdsServerUrl, sizeof(SETTINGS.opdsServerUrl),
+                          "opdsServerUrl", StrId::STR_OPDS_BROWSER),
+      SettingInfo::String(StrId::STR_USERNAME, SETTINGS.opdsUsername, sizeof(SETTINGS.opdsUsername), "opdsUsername",
+                          StrId::STR_OPDS_BROWSER),
+      SettingInfo::String(StrId::STR_PASSWORD, SETTINGS.opdsPassword, sizeof(SETTINGS.opdsPassword), "opdsPassword",
+                          StrId::STR_OPDS_BROWSER),
   };
 }

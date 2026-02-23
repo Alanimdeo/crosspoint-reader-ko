@@ -1,6 +1,7 @@
 #pragma once
 
 #include <EpdFontFamily.h>
+#include <FontDecompressor.h>
 #include <HalDisplay.h>
 #include <SdFontFamily.h>
 
@@ -39,7 +40,8 @@ class GfxRenderer {
   uint8_t* bwBufferChunks[BW_BUFFER_NUM_CHUNKS] = {nullptr};
   std::map<int, std::unique_ptr<UnifiedFontFamily>> fontMap;
   int fallbackFontId = 0;  // Default fallback font ID (set after fonts are loaded)
-  void renderChar(const UnifiedFontFamily& fontFamily, uint32_t cp, int* x, const int* y, bool pixelState,
+  FontDecompressor* fontDecompressor = nullptr;
+  void renderChar(const UnifiedFontFamily& fontFamily, uint32_t cp, int* x, int* y, bool pixelState,
                   EpdFontStyle style) const;
   void freeBwBufferChunks();
   template <Color color>
@@ -71,6 +73,10 @@ class GfxRenderer {
   bool removeFont(int fontId);
   // Get effective font ID (returns fallback if requested font not found)
   int getEffectiveFontId(int fontId) const;
+  void setFontDecompressor(FontDecompressor* d) { fontDecompressor = d; }
+  void clearFontCache() {
+    if (fontDecompressor) fontDecompressor->clearCache();
+  }
 
   // Orientation control (affects logical width/height and coordinate transforms)
   void setOrientation(const Orientation o) { orientation = o; }
@@ -117,9 +123,9 @@ class GfxRenderer {
   void drawText(int fontId, int x, int y, const char* text, bool black = true, EpdFontStyle style = REGULAR) const;
   void drawText(int fontId, int x, int y, const char* text, int8_t letterSpacing, bool black = true,
                 EpdFontStyle style = REGULAR) const;
-  int getSpaceWidth(int fontId) const;
+  int getSpaceWidth(int fontId, EpdFontStyle style = REGULAR) const;
   int countUtf8Chars(const char* text) const;
-  int getTextAdvanceX(int fontId, const char* text) const;
+  int getTextAdvanceX(int fontId, const char* text, EpdFontStyle style = REGULAR) const;
   int getFontAscenderSize(int fontId) const;
   int getLineHeight(int fontId) const;
   std::string truncatedText(int fontId, const char* text, int maxWidth, EpdFontStyle style = REGULAR) const;
@@ -131,6 +137,7 @@ class GfxRenderer {
 
   // Grayscale functions
   void setRenderMode(const RenderMode mode) { this->renderMode = mode; }
+  RenderMode getRenderMode() const { return renderMode; }
   void copyGrayscaleLsbBuffers() const;
   void copyGrayscaleMsbBuffers() const;
   void displayGrayBuffer() const;
@@ -139,6 +146,9 @@ class GfxRenderer {
   bool copyStoredBwBuffer();  // Copy stored buffer to framebuffer without freeing
   void freeStoredBwBuffer();  // Free the stored buffer manually
   void cleanupGrayscaleWithFrameBuffer() const;
+
+  // Font helpers
+  const uint8_t* getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const;
 
   // Low level functions
   uint8_t* getFrameBuffer() const;

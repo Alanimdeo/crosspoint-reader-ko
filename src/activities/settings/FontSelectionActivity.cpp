@@ -3,6 +3,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <HardwareSerial.h>
+#include <Logging.h>
 
 #include <cstring>
 
@@ -49,12 +50,12 @@ void deleteDirectory(const char* path) {
 // Invalidate rendering caches for EPUB and TXT readers
 // Keeps progress.bin (reading position) but removes layout caches
 void invalidateReaderCaches() {
-  Serial.printf("[%lu] [FNT] Invalidating reader rendering caches...\n", millis());
+  LOG_DBG("FNT", "Invalidating reader rendering caches...");
 
   FsFile cacheDir = Storage.open(CACHE_DIR);
   if (!cacheDir || !cacheDir.isDir()) {
     if (cacheDir) cacheDir.close();
-    Serial.printf("[%lu] [FNT] No cache directory found\n", millis());
+    LOG_DBG("FNT", "No cache directory found");
     return;
   }
 
@@ -73,7 +74,7 @@ void invalidateReaderCaches() {
     if (sectionsDir && sectionsDir.isDir()) {
       sectionsDir.close();
       deleteDirectory(sectionsPath.c_str());
-      Serial.printf("[%lu] [FNT] Deleted EPUB sections cache: %s\n", millis(), sectionsPath.c_str());
+      LOG_DBG("FNT", "Deleted EPUB sections cache: %s", sectionsPath.c_str());
       deletedCount++;
     } else {
       if (sectionsDir) sectionsDir.close();
@@ -83,13 +84,13 @@ void invalidateReaderCaches() {
     std::string indexPath = bookCachePath + "/index.bin";
     if (Storage.exists(indexPath.c_str())) {
       Storage.remove(indexPath.c_str());
-      Serial.printf("[%lu] [FNT] Deleted TXT index cache: %s\n", millis(), indexPath.c_str());
+      LOG_DBG("FNT", "Deleted TXT index cache: %s", indexPath.c_str());
       deletedCount++;
     }
   }
   cacheDir.close();
 
-  Serial.printf("[%lu] [FNT] Invalidated %d cache entries\n", millis(), deletedCount);
+  LOG_DBG("FNT", "Invalidated %d cache entries", deletedCount);
 }
 }  // namespace
 
@@ -101,12 +102,12 @@ void FontSelectionActivity::taskTrampoline(void* param) {
 void FontSelectionActivity::scanFontsInDirectory(const char* dirPath) {
   FsFile dir = Storage.open(dirPath);
   if (!dir) {
-    Serial.printf("[%lu] [FNT] Font folder %s not found\n", millis(), dirPath);
+    LOG_DBG("FNT", "Font folder %s not found", dirPath);
     return;
   }
 
   if (!dir.isDir()) {
-    Serial.printf("[%lu] [FNT] %s is not a directory\n", millis(), dirPath);
+    LOG_DBG("FNT", "%s is not a directory", dirPath);
     dir.close();
     return;
   }
@@ -129,7 +130,7 @@ void FontSelectionActivity::scanFontsInDirectory(const char* dirPath) {
         std::string displayName(filename, len - 8);
         fontNames.push_back(displayName);
 
-        Serial.printf("[%lu] [FNT] Found font: %s\n", millis(), fullPath.c_str());
+        LOG_DBG("FNT", "Found font: %s", fullPath.c_str());
       }
     }
     file.close();
@@ -155,7 +156,7 @@ void FontSelectionActivity::loadFontList() {
   // Also scan fonts from /fonts (root folder)
   scanFontsInDirectory(ROOT_FONTS_DIR);
 
-  Serial.printf("[%lu] [FNT] Total fonts found: %zu (including default)\n", millis(), fontFiles.size());
+  LOG_DBG("FNT", "Total fonts found: %zu (including default)", fontFiles.size());
 
   // Find currently selected font index
   selectedIndex = 0;  // Default
@@ -246,7 +247,7 @@ void FontSelectionActivity::handleSelection() {
   }
 
   SETTINGS.saveToFile();
-  Serial.printf("[%lu] [FNT] Font selected: %s\n", millis(), selectedIndex == 0 ? "default" : SETTINGS.customFontPath);
+  LOG_DBG("FNT", "Font selected: %s", selectedIndex == 0 ? "default" : SETTINGS.customFontPath);
 
   // Reload custom font dynamically (no reboot needed)
   reloadCustomReaderFont();
