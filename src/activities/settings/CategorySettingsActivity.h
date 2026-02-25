@@ -43,7 +43,7 @@ struct SettingInfo {
 
 class CategorySettingsActivity final : public ActivityWithSubactivity {
   TaskHandle_t displayTaskHandle = nullptr;
-  SemaphoreHandle_t renderingMutex = nullptr;
+  SemaphoreHandle_t displayMutex = nullptr;
   bool updateRequired = false;
   int selectedSettingIndex = 0;
   const char* categoryName;

@@ -25,7 +25,7 @@ class FontSelectionActivity final : public ActivityWithSubactivity {
 
  private:
   TaskHandle_t displayTaskHandle = nullptr;
-  SemaphoreHandle_t renderingMutex = nullptr;
+  SemaphoreHandle_t displayMutex = nullptr;
   bool updateRequired = false;
 
   int selectedIndex = 0;

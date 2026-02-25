@@ -173,7 +173,7 @@ void FontSelectionActivity::loadFontList() {
 void FontSelectionActivity::onEnter() {
   ActivityWithSubactivity::onEnter();
 
-  renderingMutex = xSemaphoreCreateMutex();
+  displayMutex = xSemaphoreCreateMutex();
 
   // Load font list from SD card
   loadFontList();
@@ -191,13 +191,13 @@ void FontSelectionActivity::onEnter() {
 void FontSelectionActivity::onExit() {
   ActivityWithSubactivity::onExit();
 
-  xSemaphoreTake(renderingMutex, portMAX_DELAY);
+  xSemaphoreTake(displayMutex, portMAX_DELAY);
   if (displayTaskHandle) {
     vTaskDelete(displayTaskHandle);
     displayTaskHandle = nullptr;
   }
-  vSemaphoreDelete(renderingMutex);
-  renderingMutex = nullptr;
+  vSemaphoreDelete(displayMutex);
+  displayMutex = nullptr;
 }
 
 void FontSelectionActivity::loop() {
@@ -229,7 +229,7 @@ void FontSelectionActivity::loop() {
 }
 
 void FontSelectionActivity::handleSelection() {
-  xSemaphoreTake(renderingMutex, portMAX_DELAY);
+  xSemaphoreTake(displayMutex, portMAX_DELAY);
 
   // Show loading screen
   renderer.clearScreen();
@@ -255,7 +255,7 @@ void FontSelectionActivity::handleSelection() {
   // Invalidate EPUB/TXT caches since font changed
   invalidateReaderCaches();
 
-  xSemaphoreGive(renderingMutex);
+  xSemaphoreGive(displayMutex);
 
   // Return to settings
   onBack();
@@ -265,9 +265,9 @@ void FontSelectionActivity::displayTaskLoop() {
   while (true) {
     if (updateRequired && !subActivity) {
       updateRequired = false;
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      xSemaphoreTake(displayMutex, portMAX_DELAY);
       render();
-      xSemaphoreGive(renderingMutex);
+      xSemaphoreGive(displayMutex);
     }
     vTaskDelay(10 / portTICK_PERIOD_MS);
   }

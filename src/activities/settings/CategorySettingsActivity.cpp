@@ -22,7 +22,7 @@ void CategorySettingsActivity::taskTrampoline(void* param) {
 
 void CategorySettingsActivity::onEnter() {
   Activity::onEnter();
-  renderingMutex = xSemaphoreCreateMutex();
+  displayMutex = xSemaphoreCreateMutex();
 
   selectedSettingIndex = 0;
   updateRequired = true;
@@ -35,13 +35,13 @@ void CategorySettingsActivity::onExit() {
   ActivityWithSubactivity::onExit();
 
   // Wait until not rendering to delete task to avoid killing mid-instruction to EPD
-  xSemaphoreTake(renderingMutex, portMAX_DELAY);
+  xSemaphoreTake(displayMutex, portMAX_DELAY);
   if (displayTaskHandle) {
     vTaskDelete(displayTaskHandle);
     displayTaskHandle = nullptr;
   }
-  vSemaphoreDelete(renderingMutex);
-  renderingMutex = nullptr;
+  vSemaphoreDelete(displayMutex);
+  displayMutex = nullptr;
 }
 
 void CategorySettingsActivity::loop() {
@@ -98,45 +98,45 @@ void CategorySettingsActivity::toggleCurrentSetting() {
     }
   } else if (setting.type == SettingType::ACTION) {
     if (strcmp(setting.name, "글꼴 설정") == 0) {
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      xSemaphoreTake(displayMutex, portMAX_DELAY);
       exitActivity();
       enterNewActivity(new FontSelectionActivity(renderer, mappedInput, [this] {
         exitActivity();
         updateRequired = true;
       }));
-      xSemaphoreGive(renderingMutex);
+      xSemaphoreGive(displayMutex);
     } else if (strcmp(setting.name, "KOReader Sync") == 0 || strcmp(setting.name, "KOReader 동기화") == 0) {
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      xSemaphoreTake(displayMutex, portMAX_DELAY);
       exitActivity();
       enterNewActivity(new KOReaderSettingsActivity(renderer, mappedInput, [this] {
         exitActivity();
         updateRequired = true;
       }));
-      xSemaphoreGive(renderingMutex);
+      xSemaphoreGive(displayMutex);
     } else if (strcmp(setting.name, "OPDS Browser") == 0 || strcmp(setting.name, "OPDS 브라우저") == 0) {
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      xSemaphoreTake(displayMutex, portMAX_DELAY);
       exitActivity();
       enterNewActivity(new CalibreSettingsActivity(renderer, mappedInput, [this] {
         exitActivity();
         updateRequired = true;
       }));
-      xSemaphoreGive(renderingMutex);
+      xSemaphoreGive(displayMutex);
     } else if (strcmp(setting.name, "Clear Cache") == 0 || strcmp(setting.name, "캐시 지우기") == 0) {
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      xSemaphoreTake(displayMutex, portMAX_DELAY);
       exitActivity();
       enterNewActivity(new ClearCacheActivity(renderer, mappedInput, [this] {
         exitActivity();
         updateRequired = true;
       }));
-      xSemaphoreGive(renderingMutex);
+      xSemaphoreGive(displayMutex);
     } else if (strcmp(setting.name, "Check for updates") == 0 || strcmp(setting.name, "업데이트 확인") == 0) {
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      xSemaphoreTake(displayMutex, portMAX_DELAY);
       exitActivity();
       enterNewActivity(new OtaUpdateActivity(renderer, mappedInput, [this] {
         exitActivity();
         updateRequired = true;
       }));
-      xSemaphoreGive(renderingMutex);
+      xSemaphoreGive(displayMutex);
     }
   } else {
     return;
@@ -149,9 +149,9 @@ void CategorySettingsActivity::displayTaskLoop() {
   while (true) {
     if (updateRequired && !subActivity) {
       updateRequired = false;
-      xSemaphoreTake(renderingMutex, portMAX_DELAY);
+      xSemaphoreTake(displayMutex, portMAX_DELAY);
       render();
-      xSemaphoreGive(renderingMutex);
+      xSemaphoreGive(displayMutex);
     }
     vTaskDelay(10 / portTICK_PERIOD_MS);
   }
