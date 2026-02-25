@@ -71,6 +71,7 @@ jobs:
         prerelease: false
 
     - name: Trigger docs deployment
+      continue-on-error: true
       run: gh workflow run deploy.yml -R crosspoint-reader-ko/crosspoint-reader-docs
       env:
         GH_TOKEN: ${{ secrets.CROSSPOINT_ACTION_TOKEN }}
