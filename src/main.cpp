@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalDisplay.h>
+#include <HalTiltSensor.h>
 #include <HalGPIO.h>
 #include <HalPowerManager.h>
 #include <HalStorage.h>
@@ -254,6 +255,7 @@ void setup() {
   gpio.begin();
   powerManager.begin();
   halClock.begin();
+  halTiltSensor.begin();
 
 #ifdef ENABLE_SERIAL_LOG
   if (gpio.isUsbConnected()) {
@@ -340,6 +342,7 @@ void loop() {
   static unsigned long lastMemPrint = 0;
 
   gpio.update();
+  halTiltSensor.update();
 
   renderer.setFadingFix(SETTINGS.fadingFix);
 
