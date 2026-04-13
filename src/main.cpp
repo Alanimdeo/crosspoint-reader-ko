@@ -207,6 +207,7 @@ void enterDeepSleep() {
 
   activityManager.goToSleep();
 
+  halTiltSensor.deepSleep();
   display.deepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
@@ -342,9 +343,7 @@ void loop() {
   static unsigned long lastMemPrint = 0;
 
   gpio.update();
-  if (SETTINGS.tiltPageTurn) {
-    halTiltSensor.update(SETTINGS.orientation);
-  }
+  halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation);
 
   renderer.setFadingFix(SETTINGS.fadingFix);
 
