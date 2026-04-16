@@ -131,8 +131,8 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
 
   // Synthetic bold: draw each on pixel again one column over when bold is requested
   // but the font has no bold variant.
-  const bool syntheticBold = (style == EpdFontFamily::BOLD || style == EpdFontFamily::BOLD_ITALIC) &&
-                             !fontFamily.hasBold();
+  const bool syntheticBold =
+      (style == EpdFontFamily::BOLD || style == EpdFontFamily::BOLD_ITALIC) && !fontFamily.hasBold();
 
   // Get bitmap: flash path uses the compressed/cached decompressor via the renderer helper,
   // SD path uses its own on-demand loader. UnifiedFontFamily::getGlyphBitmap handles both,
