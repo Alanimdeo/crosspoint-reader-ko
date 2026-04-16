@@ -112,4 +112,13 @@ class UnifiedFontFamily {
 
   // Check if bold variant is available (for synthetic bold decision)
   bool hasBold() const;
+
+  // Kerning: delegates to flash font; SD fonts have no kerning tables so returns 0.
+  int8_t getKerning(uint32_t leftCp, uint32_t rightCp, EpdFontStyle style = REGULAR) const;
+
+  // Ligatures: delegates to flash font; SD fonts have no ligature tables so returns cp unchanged.
+  uint32_t applyLigatures(uint32_t cp, const char*& text, EpdFontStyle style = REGULAR) const;
+
+  // EpdFontData accessor for upstream compatibility (flash only; returns nullptr for SD fonts)
+  const EpdFontData* getData(EpdFontStyle style = REGULAR) const { return getFlashData(style); }
 };

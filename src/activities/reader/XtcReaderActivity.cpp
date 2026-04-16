@@ -26,7 +26,7 @@ constexpr unsigned long goHomeMs = 1000;
 }  // namespace
 
 void XtcReaderActivity::onEnter() {
-  ActivityWithSubactivity::onEnter();
+  Activity::onEnter();
 
   if (!xtc) {
     return;
@@ -47,7 +47,7 @@ void XtcReaderActivity::onEnter() {
 }
 
 void XtcReaderActivity::onExit() {
-  ActivityWithSubactivity::onExit();
+  Activity::onExit();
 
   APP_STATE.readerActivityLoadCount = 0;
   APP_STATE.saveToFile();
@@ -55,33 +55,22 @@ void XtcReaderActivity::onExit() {
 }
 
 void XtcReaderActivity::loop() {
-  // Pass input responsibility to sub activity if exists
-  if (subActivity) {
-    subActivity->loop();
-    return;
-  }
-
   // Enter chapter selection activity
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
     if (xtc && xtc->hasChapters() && !xtc->getChapters().empty()) {
-      exitActivity();
-      enterNewActivity(new XtcReaderChapterSelectionActivity(
-          this->renderer, this->mappedInput, xtc, currentPage,
-          [this] {
-            exitActivity();
-            requestUpdate();
-          },
-          [this](const uint32_t newPage) {
-            currentPage = newPage;
-            exitActivity();
-            requestUpdate();
-          }));
+      startActivityForResult(
+          std::make_unique<XtcReaderChapterSelectionActivity>(renderer, mappedInput, xtc, currentPage),
+          [this](const ActivityResult& result) {
+            if (!result.isCancelled) {
+              currentPage = std::get<PageResult>(result.data).page;
+            }
+          });
     }
   }
 
   // Long press BACK (1s+) goes to file selection
   if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= goHomeMs) {
-    onGoBack();
+    activityManager.goToFileBrowser(xtc ? xtc->getPath() : "");
     return;
   }
 
@@ -109,10 +98,14 @@ void XtcReaderActivity::loop() {
     return;
   }
 
-  // Handle end of book
+  // At end of the book, forward button goes home and back button returns to last page
   if (currentPage >= xtc->getPageCount()) {
-    currentPage = xtc->getPageCount() - 1;
-    requestUpdate();
+    if (nextTriggered) {
+      onGoHome();
+    } else {
+      currentPage = xtc->getPageCount() - 1;
+      requestUpdate();
+    }
     return;
   }
 
@@ -135,7 +128,7 @@ void XtcReaderActivity::loop() {
   }
 }
 
-void XtcReaderActivity::render(Activity::RenderLock&&) {
+void XtcReaderActivity::render(RenderLock&&) {
   if (!xtc) {
     return;
   }

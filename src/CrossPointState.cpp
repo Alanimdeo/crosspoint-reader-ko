@@ -55,23 +55,14 @@ bool CrossPointState::loadFromBinaryFile() {
   serialization::readPod(inputFile, version);
   if (version > STATE_FILE_VERSION) {
     LOG_ERR("CPS", "Deserialization failed: Unknown version %u", version);
-    inputFile.close();
-    Storage.remove(STATE_FILE_BIN);
     return false;
   }
 
-  if (!serialization::readString(inputFile, openEpubPath)) {
-    LOG_ERR("CPS", "Corrupted string in state file, deleting");
-    inputFile.close();
-    Storage.remove(STATE_FILE_BIN);
-    openEpubPath.clear();
-    return false;
-  }
-
+  serialization::readString(inputFile, openEpubPath);
   if (version >= 2) {
     serialization::readPod(inputFile, lastSleepImage);
   } else {
-    lastSleepImage = 0;
+    lastSleepImage = UINT8_MAX;
   }
 
   if (version >= 3) {
@@ -84,6 +75,5 @@ bool CrossPointState::loadFromBinaryFile() {
     lastSleepFromReader = false;
   }
 
-  inputFile.close();
   return true;
 }

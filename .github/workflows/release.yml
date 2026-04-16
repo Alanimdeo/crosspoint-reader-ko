@@ -26,8 +26,14 @@ jobs:
       with:
         python-version: '3.14'
 
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: "latest"
+        enable-cache: false
+
     - name: Install PlatformIO Core
-      run: pip install --upgrade platformio esptool
+      run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip esptool
 
     - name: Set version from tag
       run: |

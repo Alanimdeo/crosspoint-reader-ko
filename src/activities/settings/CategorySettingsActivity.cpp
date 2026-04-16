@@ -12,6 +12,7 @@
 #include "KOReaderSettingsActivity.h"
 #include "MappedInputManager.h"
 #include "OtaUpdateActivity.h"
+#include "activities/ActivityResult.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
@@ -97,46 +98,17 @@ void CategorySettingsActivity::toggleCurrentSetting() {
       SETTINGS.*(setting.valuePtr) = currentValue + setting.valueRange.step;
     }
   } else if (setting.type == SettingType::ACTION) {
+    auto resultHandler = [this](const ActivityResult&) { updateRequired = true; };
     if (strcmp(setting.name, "글꼴 설정") == 0) {
-      xSemaphoreTake(displayMutex, portMAX_DELAY);
-      exitActivity();
-      enterNewActivity(new FontSelectionActivity(renderer, mappedInput, [this] {
-        exitActivity();
-        updateRequired = true;
-      }));
-      xSemaphoreGive(displayMutex);
+      startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput), resultHandler);
     } else if (strcmp(setting.name, "KOReader Sync") == 0 || strcmp(setting.name, "KOReader 동기화") == 0) {
-      xSemaphoreTake(displayMutex, portMAX_DELAY);
-      exitActivity();
-      enterNewActivity(new KOReaderSettingsActivity(renderer, mappedInput, [this] {
-        exitActivity();
-        updateRequired = true;
-      }));
-      xSemaphoreGive(displayMutex);
+      startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput), resultHandler);
     } else if (strcmp(setting.name, "OPDS Browser") == 0 || strcmp(setting.name, "OPDS 브라우저") == 0) {
-      xSemaphoreTake(displayMutex, portMAX_DELAY);
-      exitActivity();
-      enterNewActivity(new CalibreSettingsActivity(renderer, mappedInput, [this] {
-        exitActivity();
-        updateRequired = true;
-      }));
-      xSemaphoreGive(displayMutex);
+      startActivityForResult(std::make_unique<CalibreSettingsActivity>(renderer, mappedInput), resultHandler);
     } else if (strcmp(setting.name, "Clear Cache") == 0 || strcmp(setting.name, "캐시 지우기") == 0) {
-      xSemaphoreTake(displayMutex, portMAX_DELAY);
-      exitActivity();
-      enterNewActivity(new ClearCacheActivity(renderer, mappedInput, [this] {
-        exitActivity();
-        updateRequired = true;
-      }));
-      xSemaphoreGive(displayMutex);
+      startActivityForResult(std::make_unique<ClearCacheActivity>(renderer, mappedInput), resultHandler);
     } else if (strcmp(setting.name, "Check for updates") == 0 || strcmp(setting.name, "업데이트 확인") == 0) {
-      xSemaphoreTake(displayMutex, portMAX_DELAY);
-      exitActivity();
-      enterNewActivity(new OtaUpdateActivity(renderer, mappedInput, [this] {
-        exitActivity();
-        updateRequired = true;
-      }));
-      xSemaphoreGive(displayMutex);
+      startActivityForResult(std::make_unique<OtaUpdateActivity>(renderer, mappedInput), resultHandler);
     }
   } else {
     return;

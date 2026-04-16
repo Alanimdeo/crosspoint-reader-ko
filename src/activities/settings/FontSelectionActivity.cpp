@@ -20,27 +20,24 @@ constexpr const char* CACHE_DIR = "/.crosspoint/cache";
 // Recursively delete a directory and its contents
 void deleteDirectory(const char* path) {
   FsFile dir = Storage.open(path);
-  if (!dir || !dir.isDir()) {
+  if (!dir || !dir.isDirectory()) {
     if (dir) dir.close();
     return;
   }
 
-  FsFile entry;
-  while (entry.openNext(&dir, O_RDONLY)) {
+  while (true) {
+    FsFile entry = dir.openNextFile();
+    if (!entry) break;
     char entryName[64];
     entry.getName(entryName, sizeof(entryName));
+    bool entryIsDir = entry.isDirectory();
     entry.close();
 
     std::string fullPath = std::string(path) + "/" + entryName;
-    FsFile check = Storage.open(fullPath.c_str());
-    if (check) {
-      bool isDir = check.isDir();
-      check.close();
-      if (isDir) {
-        deleteDirectory(fullPath.c_str());
-      } else {
-        Storage.remove(fullPath.c_str());
-      }
+    if (entryIsDir) {
+      deleteDirectory(fullPath.c_str());
+    } else {
+      Storage.remove(fullPath.c_str());
     }
   }
   dir.close();
@@ -53,15 +50,16 @@ void invalidateReaderCaches() {
   LOG_DBG("FNT", "Invalidating reader rendering caches...");
 
   FsFile cacheDir = Storage.open(CACHE_DIR);
-  if (!cacheDir || !cacheDir.isDir()) {
+  if (!cacheDir || !cacheDir.isDirectory()) {
     if (cacheDir) cacheDir.close();
     LOG_DBG("FNT", "No cache directory found");
     return;
   }
 
   int deletedCount = 0;
-  FsFile bookCache;
-  while (bookCache.openNext(&cacheDir, O_RDONLY)) {
+  while (true) {
+    FsFile bookCache = cacheDir.openNextFile();
+    if (!bookCache) break;
     char bookCacheName[64];
     bookCache.getName(bookCacheName, sizeof(bookCacheName));
     bookCache.close();
@@ -71,7 +69,7 @@ void invalidateReaderCaches() {
     // For EPUB: delete sections/ folder (keeps progress.bin)
     std::string sectionsPath = bookCachePath + "/sections";
     FsFile sectionsDir = Storage.open(sectionsPath.c_str());
-    if (sectionsDir && sectionsDir.isDir()) {
+    if (sectionsDir && sectionsDir.isDirectory()) {
       sectionsDir.close();
       deleteDirectory(sectionsPath.c_str());
       LOG_DBG("FNT", "Deleted EPUB sections cache: %s", sectionsPath.c_str());
@@ -106,16 +104,17 @@ void FontSelectionActivity::scanFontsInDirectory(const char* dirPath) {
     return;
   }
 
-  if (!dir.isDir()) {
+  if (!dir.isDirectory()) {
     LOG_DBG("FNT", "%s is not a directory", dirPath);
     dir.close();
     return;
   }
 
   // List all .epdfont files
-  FsFile file;
-  while (file.openNext(&dir, O_RDONLY)) {
-    if (!file.isDir()) {
+  while (true) {
+    FsFile file = dir.openNextFile();
+    if (!file) break;
+    if (!file.isDirectory()) {
       char filename[64];
       file.getName(filename, sizeof(filename));
 
@@ -207,7 +206,7 @@ void FontSelectionActivity::loop() {
   }
 
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    onBack();
+    finish();
     return;
   }
 
@@ -258,7 +257,7 @@ void FontSelectionActivity::handleSelection() {
   xSemaphoreGive(displayMutex);
 
   // Return to settings
-  onBack();
+  finish();
 }
 
 void FontSelectionActivity::displayTaskLoop() {

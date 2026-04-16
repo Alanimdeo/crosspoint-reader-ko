@@ -1,6 +1,6 @@
 #pragma once
 
-#include <SdFat.h>
+#include <HalStorage.h>
 
 #include <cstdint>
 #include <list>
@@ -96,8 +96,10 @@ class SdFontData {
   static GlyphBitmapCache* sharedCache;
   static int cacheRefCount;
 
-  // File handle for reading (opened on demand)
-  mutable FsFile fontFile;
+  // File handle for reading (opened on demand).
+  // Upstream HalStorage renamed FsFile -> HalFile; use HalFile directly so the
+  // typedef pulled in by HalStorage.h does not fight with SdFat's FsFile class.
+  mutable HalFile fontFile;
 
   // Binary search for glyph index
   int findGlyphIndex(uint32_t codepoint) const;

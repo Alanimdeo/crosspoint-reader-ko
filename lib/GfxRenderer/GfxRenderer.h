@@ -1,12 +1,16 @@
 #pragma once
 
 #include <EpdFontFamily.h>
-#include <FontDecompressor.h>
 #include <HalDisplay.h>
 #include <SdFontFamily.h>
 
+class FontCacheManager;
+
+#include <cstring>
 #include <map>
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "Bitmap.h"
 
@@ -28,21 +32,24 @@ class GfxRenderer {
 
  private:
   static constexpr size_t BW_BUFFER_CHUNK_SIZE = 8000;  // 8KB chunks to allow for non-contiguous memory
-  static constexpr size_t BW_BUFFER_NUM_CHUNKS = HalDisplay::BUFFER_SIZE / BW_BUFFER_CHUNK_SIZE;
-  static_assert(BW_BUFFER_CHUNK_SIZE * BW_BUFFER_NUM_CHUNKS == HalDisplay::BUFFER_SIZE,
-                "BW buffer chunking does not line up with display buffer size");
 
   HalDisplay& display;
   RenderMode renderMode;
   Orientation orientation;
   bool fadingFix;
   uint8_t* frameBuffer = nullptr;
-  uint8_t* bwBufferChunks[BW_BUFFER_NUM_CHUNKS] = {nullptr};
+  uint16_t panelWidth = HalDisplay::DISPLAY_WIDTH;
+  uint16_t panelHeight = HalDisplay::DISPLAY_HEIGHT;
+  uint16_t panelWidthBytes = HalDisplay::DISPLAY_WIDTH_BYTES;
+  uint32_t frameBufferSize = HalDisplay::BUFFER_SIZE;
+  std::vector<uint8_t*> bwBufferChunks;
   std::map<int, std::unique_ptr<UnifiedFontFamily>> fontMap;
   int fallbackFontId = 0;  // Default fallback font ID (set after fonts are loaded)
-  FontDecompressor* fontDecompressor = nullptr;
-  void renderChar(const UnifiedFontFamily& fontFamily, uint32_t cp, int* x, int* y, bool pixelState,
-                  EpdFontStyle style) const;
+
+  // Mutable because drawText() is const but needs to delegate scan-mode
+  // recording to the (non-const) FontCacheManager.
+  mutable FontCacheManager* fontCacheManager_ = nullptr;
+
   void freeBwBufferChunks();
   template <Color color>
   void drawPixelDither(int x, int y) const;
@@ -61,6 +68,8 @@ class GfxRenderer {
 
   // Setup
   void begin();  // must be called right after display.begin()
+
+  // Font registry (Korean API — supports both flash and SD-card fonts)
   // Flash fonts (EpdFontFamily) - stores pointer to global font
   void insertFont(int fontId, const EpdFontFamily* font);
   // SD card fonts (SdFontFamily) - takes ownership
@@ -73,10 +82,11 @@ class GfxRenderer {
   bool removeFont(int fontId);
   // Get effective font ID (returns fallback if requested font not found)
   int getEffectiveFontId(int fontId) const;
-  void setFontDecompressor(FontDecompressor* d) { fontDecompressor = d; }
-  void clearFontCache() {
-    if (fontDecompressor) fontDecompressor->clearCache();
-  }
+
+  // FontCacheManager integration (upstream)
+  void setFontCacheManager(FontCacheManager* m) { fontCacheManager_ = m; }
+  FontCacheManager* getFontCacheManager() const { return fontCacheManager_; }
+  const std::map<int, std::unique_ptr<UnifiedFontFamily>>& getFontMap() const { return fontMap; }
 
   // Orientation control (affects logical width/height and coordinate transforms)
   void setOrientation(const Orientation o) { orientation = o; }
@@ -121,18 +131,30 @@ class GfxRenderer {
   int getTextWidth(int fontId, const char* text, EpdFontStyle style = REGULAR) const;
   void drawCenteredText(int fontId, int y, const char* text, bool black = true, EpdFontStyle style = REGULAR) const;
   void drawText(int fontId, int x, int y, const char* text, bool black = true, EpdFontStyle style = REGULAR) const;
+  // Korean letter-spacing overload (invariant).
   void drawText(int fontId, int x, int y, const char* text, int8_t letterSpacing, bool black = true,
                 EpdFontStyle style = REGULAR) const;
   int getSpaceWidth(int fontId, EpdFontStyle style = REGULAR) const;
   int countUtf8Chars(const char* text) const;
+  /// Returns the total inter-word advance: fp4::toPixel(spaceAdvance + kern(leftCp,' ') + kern(' ',rightCp)).
+  /// Using a single snap avoids the +/-1 px rounding error that arises when space advance and kern are
+  /// snapped separately and then added as integers.
+  int getSpaceAdvance(int fontId, uint32_t leftCp, uint32_t rightCp, EpdFontStyle style) const;
+  /// Returns the kerning adjustment between two adjacent codepoints.
+  int getKerning(int fontId, uint32_t leftCp, uint32_t rightCp, EpdFontStyle style) const;
   int getTextAdvanceX(int fontId, const char* text, EpdFontStyle style = REGULAR) const;
   int getFontAscenderSize(int fontId) const;
   int getLineHeight(int fontId) const;
   std::string truncatedText(int fontId, const char* text, int maxWidth, EpdFontStyle style = REGULAR) const;
+  /// Word-wrap \p text into at most \p maxLines lines, each no wider than
+  /// \p maxWidth pixels. Overflowing words and excess lines are UTF-8-safely
+  /// truncated with an ellipsis (U+2026).
+  std::vector<std::string> wrappedText(int fontId, const char* text, int maxWidth, int maxLines,
+                                       EpdFontStyle style = REGULAR) const;
 
   // Helper for drawing rotated text (90 degrees clockwise, for side buttons)
   void drawTextRotated90CW(int fontId, int x, int y, const char* text, bool black = true,
-                           EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
+                           EpdFontStyle style = REGULAR) const;
   int getTextHeight(int fontId) const;
 
   // Grayscale functions
@@ -152,5 +174,8 @@ class GfxRenderer {
 
   // Low level functions
   uint8_t* getFrameBuffer() const;
-  static size_t getBufferSize();
+  size_t getBufferSize() const;
+  uint16_t getDisplayWidth() const { return panelWidth; }
+  uint16_t getDisplayHeight() const { return panelHeight; }
+  uint16_t getDisplayWidthBytes() const { return panelWidthBytes; }
 };

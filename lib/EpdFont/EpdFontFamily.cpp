@@ -26,7 +26,7 @@ const EpdFontData* EpdFontFamily::getData(const Style style) const { return getF
 
 const EpdGlyph* EpdFontFamily::getGlyph(const uint32_t cp, const Style style) const {
   return getFont(style)->getGlyph(cp);
-};
+}
 
 bool EpdFontFamily::hasPrintableChars(const char* string, const Style style) const {
   const EpdFont* font = getFont(style);
@@ -52,4 +52,12 @@ bool EpdFontFamily::hasPrintableChars(const char* string, const Style style) con
     if (font->getGlyph(cp)) return true;
   }
   return false;
+}
+
+int8_t EpdFontFamily::getKerning(const uint32_t leftCp, const uint32_t rightCp, const Style style) const {
+  return getFont(style)->getKerning(leftCp, rightCp);
+}
+
+uint32_t EpdFontFamily::applyLigatures(const uint32_t cp, const char*& text, const Style style) const {
+  return getFont(style)->applyLigatures(cp, text);
 }

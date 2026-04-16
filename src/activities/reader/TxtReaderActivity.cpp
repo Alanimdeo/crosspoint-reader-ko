@@ -1,5 +1,6 @@
 #include "TxtReaderActivity.h"
 
+#include <FontCacheManager.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -10,16 +11,13 @@
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
+#include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 
 namespace {
-constexpr unsigned long goHomeMs = 1000;
-constexpr int statusBarMargin = 25;
-constexpr int progressBarMarginTop = 1;
 constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
-
 // Cache file magic and version
 constexpr uint32_t CACHE_MAGIC = 0x54585449;  // "TXTI"
 constexpr uint8_t CACHE_VERSION = 4;          // Increment when cache format changes (added lineCompression)
@@ -90,29 +88,13 @@ size_t findBreakPosition(const GfxRenderer& renderer, int fontId, const std::str
 }  // namespace
 
 void TxtReaderActivity::onEnter() {
-  ActivityWithSubactivity::onEnter();
+  Activity::onEnter();
 
   if (!txt) {
     return;
   }
 
-  // Configure screen orientation based on settings
-  switch (SETTINGS.orientation) {
-    case CrossPointSettings::ORIENTATION::PORTRAIT:
-      renderer.setOrientation(GfxRenderer::Orientation::Portrait);
-      break;
-    case CrossPointSettings::ORIENTATION::LANDSCAPE_CW:
-      renderer.setOrientation(GfxRenderer::Orientation::LandscapeClockwise);
-      break;
-    case CrossPointSettings::ORIENTATION::INVERTED:
-      renderer.setOrientation(GfxRenderer::Orientation::PortraitInverted);
-      break;
-    case CrossPointSettings::ORIENTATION::LANDSCAPE_CCW:
-      renderer.setOrientation(GfxRenderer::Orientation::LandscapeCounterClockwise);
-      break;
-    default:
-      break;
-  }
+  ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
 
   txt->setupCacheDir();
 
@@ -128,7 +110,7 @@ void TxtReaderActivity::onEnter() {
 }
 
 void TxtReaderActivity::onExit() {
-  ActivityWithSubactivity::onExit();
+  Activity::onExit();
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -141,37 +123,20 @@ void TxtReaderActivity::onExit() {
 }
 
 void TxtReaderActivity::loop() {
-  if (subActivity) {
-    subActivity->loop();
-    return;
-  }
-
   // Long press BACK (1s+) goes to file selection
-  if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= goHomeMs) {
-    onGoBack();
+  if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= ReaderUtils::GO_HOME_MS) {
+    activityManager.goToFileBrowser(txt ? txt->getPath() : "");
     return;
   }
 
   // Short press BACK goes directly to home
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back) && mappedInput.getHeldTime() < goHomeMs) {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back) &&
+      mappedInput.getHeldTime() < ReaderUtils::GO_HOME_MS) {
     onGoHome();
     return;
   }
 
-  // When long-press chapter skip is disabled, turn pages on press instead of release.
-  const bool usePressForPageTurn = !SETTINGS.longPressChapterSkip;
-  const bool prevTriggered = usePressForPageTurn ? (mappedInput.wasPressed(MappedInputManager::Button::PageBack) ||
-                                                    mappedInput.wasPressed(MappedInputManager::Button::Left))
-                                                 : (mappedInput.wasReleased(MappedInputManager::Button::PageBack) ||
-                                                    mappedInput.wasReleased(MappedInputManager::Button::Left));
-  const bool powerPageTurn = SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
-                             mappedInput.wasReleased(MappedInputManager::Button::Power);
-  const bool nextTriggered = usePressForPageTurn
-                                 ? (mappedInput.wasPressed(MappedInputManager::Button::PageForward) || powerPageTurn ||
-                                    mappedInput.wasPressed(MappedInputManager::Button::Right))
-                                 : (mappedInput.wasReleased(MappedInputManager::Button::PageForward) || powerPageTurn ||
-                                    mappedInput.wasReleased(MappedInputManager::Button::Right));
-
+  auto [prevTriggered, nextTriggered] = ReaderUtils::detectPageTurn(mappedInput);
   if (!prevTriggered && !nextTriggered) {
     return;
   }
@@ -179,9 +144,13 @@ void TxtReaderActivity::loop() {
   if (prevTriggered && currentPage > 0) {
     currentPage--;
     requestUpdate();
-  } else if (nextTriggered && currentPage < totalPages - 1) {
-    currentPage++;
-    requestUpdate();
+  } else if (nextTriggered) {
+    if (currentPage < totalPages - 1) {
+      currentPage++;
+      requestUpdate();
+    } else {
+      onGoHome();
+    }
   }
 }
 
@@ -198,32 +167,17 @@ void TxtReaderActivity::initializeReader() {
   cachedLineCompression = SETTINGS.getReaderLineCompression();
 
   // Calculate viewport dimensions
-  int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
-  renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
-                                   &orientedMarginLeft);
-  orientedMarginTop += cachedScreenMargin;
-  orientedMarginLeft += cachedScreenMargin;
-  orientedMarginRight += cachedScreenMargin;
-  orientedMarginBottom += cachedScreenMargin;
+  renderer.getOrientedViewableTRBL(&cachedOrientedMarginTop, &cachedOrientedMarginRight, &cachedOrientedMarginBottom,
+                                   &cachedOrientedMarginLeft);
+  cachedOrientedMarginTop += cachedScreenMargin;
+  cachedOrientedMarginLeft += cachedScreenMargin;
+  cachedOrientedMarginRight += cachedScreenMargin;
+  cachedOrientedMarginBottom +=
+      std::max(cachedScreenMargin, static_cast<uint8_t>(UITheme::getInstance().getStatusBarHeight()));
 
-  const auto& metrics = UITheme::getInstance().getMetrics();
-
-  // Add status bar margin
-  if (SETTINGS.statusBar != CrossPointSettings::STATUS_BAR_MODE::NONE) {
-    // Add additional margin for status bar if progress bar is shown
-    const bool showProgressBar = SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::BOOK_PROGRESS_BAR ||
-                                 SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::ONLY_BOOK_PROGRESS_BAR ||
-                                 SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::CHAPTER_PROGRESS_BAR;
-    orientedMarginBottom += statusBarMargin - cachedScreenMargin +
-                            (showProgressBar ? (metrics.bookProgressBarHeight + progressBarMarginTop) : 0);
-  }
-
-  viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
-  const int viewportHeight = renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom;
+  viewportWidth = renderer.getScreenWidth() - cachedOrientedMarginLeft - cachedOrientedMarginRight;
+  const int viewportHeight = renderer.getScreenHeight() - cachedOrientedMarginTop - cachedOrientedMarginBottom;
   const int lineHeight = renderer.getLineHeight(cachedFontId) * cachedLineCompression;
-
-  LOG_DBG("TRS", "FontId: %d, lineHeight: %d, hasFont: %d", cachedFontId, lineHeight,
-          renderer.hasFont(cachedFontId) ? 1 : 0);
 
   linesPerPage = viewportHeight / lineHeight;
   if (linesPerPage < 1) linesPerPage = 1;
@@ -394,7 +348,7 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, std::vector<std::string>
   return !outLines.empty();
 }
 
-void TxtReaderActivity::render(Activity::RenderLock&&) {
+void TxtReaderActivity::render(RenderLock&&) {
   if (!txt) {
     return;
   }
@@ -444,7 +398,6 @@ void TxtReaderActivity::render(Activity::RenderLock&&) {
 
   renderer.clearScreen();
   renderPage();
-  renderer.clearFontCache();
 
   LOG_DBG("TRS", "Render complete, saving progress...");
 
@@ -453,23 +406,15 @@ void TxtReaderActivity::render(Activity::RenderLock&&) {
 }
 
 void TxtReaderActivity::renderPage() {
-  int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
-  renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
-                                   &orientedMarginLeft);
-  orientedMarginTop += cachedScreenMargin;
-  orientedMarginLeft += cachedScreenMargin;
-  orientedMarginRight += cachedScreenMargin;
-  orientedMarginBottom += statusBarMargin;
-
   const int lineHeight = renderer.getLineHeight(cachedFontId) * cachedLineCompression;
   const int contentWidth = viewportWidth;
 
   // Render text lines with alignment
   auto renderLines = [&]() {
-    int y = orientedMarginTop;
+    int y = cachedOrientedMarginTop;
     for (const auto& line : currentPageLines) {
       if (!line.empty()) {
-        int x = orientedMarginLeft;
+        int x = cachedOrientedMarginLeft;
 
         // Apply text alignment
         switch (cachedParagraphAlignment) {
@@ -479,12 +424,12 @@ void TxtReaderActivity::renderPage() {
             break;
           case CrossPointSettings::CENTER_ALIGN: {
             int textWidth = renderer.getTextWidth(cachedFontId, line.c_str());
-            x = orientedMarginLeft + (contentWidth - textWidth) / 2;
+            x = cachedOrientedMarginLeft + (contentWidth - textWidth) / 2;
             break;
           }
           case CrossPointSettings::RIGHT_ALIGN: {
             int textWidth = renderer.getTextWidth(cachedFontId, line.c_str());
-            x = orientedMarginLeft + contentWidth - textWidth;
+            x = cachedOrientedMarginLeft + contentWidth - textWidth;
             break;
           }
           case CrossPointSettings::JUSTIFIED:
@@ -499,113 +444,31 @@ void TxtReaderActivity::renderPage() {
     }
   };
 
-  // First pass: BW rendering
+  // Font prewarm: scan pass accumulates text, then prewarm, then real render
+  auto* fcm = renderer.getFontCacheManager();
+  auto scope = fcm->createPrewarmScope();
+  renderLines();  // scan pass — text accumulated, no drawing
+  scope.endScanAndPrewarm();
+
+  // BW rendering
   renderLines();
-  renderStatusBar(orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
+  renderStatusBar();
 
-  if (pagesUntilFullRefresh <= 1) {
-    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
-    pagesUntilFullRefresh = SETTINGS.getRefreshFrequency();
-  } else {
-    renderer.displayBuffer();
-    pagesUntilFullRefresh--;
-  }
+  ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
-  // Grayscale rendering pass (for anti-aliased fonts)
   if (SETTINGS.textAntiAliasing) {
-    // Save BW buffer for restoration after grayscale pass
-    renderer.storeBwBuffer();
-
-    renderer.clearScreen(0x00);
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
-    renderLines();
-    renderer.copyGrayscaleLsbBuffers();
-
-    renderer.clearScreen(0x00);
-    renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
-    renderLines();
-    renderer.copyGrayscaleMsbBuffers();
-
-    renderer.displayGrayBuffer();
-    renderer.setRenderMode(GfxRenderer::BW);
-
-    // Restore BW buffer
-    renderer.restoreBwBuffer();
+    ReaderUtils::renderAntiAliased(renderer, [&renderLines]() { renderLines(); });
   }
+  // scope destructor clears font cache via FontCacheManager
 }
 
-void TxtReaderActivity::renderStatusBar(const int orientedMarginRight, const int orientedMarginBottom,
-                                        const int orientedMarginLeft) const {
-  const bool showProgressPercentage = SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::FULL;
-  const bool showProgressBar = SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::BOOK_PROGRESS_BAR ||
-                               SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::ONLY_BOOK_PROGRESS_BAR;
-  const bool showChapterProgressBar = SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::CHAPTER_PROGRESS_BAR;
-  const bool showProgressText = SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::FULL ||
-                                SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::BOOK_PROGRESS_BAR;
-  const bool showBookPercentage = SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::CHAPTER_PROGRESS_BAR;
-  const bool showBattery = SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::NO_PROGRESS ||
-                           SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::FULL ||
-                           SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::BOOK_PROGRESS_BAR ||
-                           SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::CHAPTER_PROGRESS_BAR;
-  const bool showTitle = SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::NO_PROGRESS ||
-                         SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::FULL ||
-                         SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::BOOK_PROGRESS_BAR ||
-                         SETTINGS.statusBar == CrossPointSettings::STATUS_BAR_MODE::CHAPTER_PROGRESS_BAR;
-  const bool showBatteryPercentage =
-      SETTINGS.hideBatteryPercentage == CrossPointSettings::HIDE_BATTERY_PERCENTAGE::HIDE_NEVER;
-
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto screenHeight = renderer.getScreenHeight();
-  // Adjust text position upward when progress bar is shown to avoid overlap
-  const auto textY = screenHeight - orientedMarginBottom - 4;
-  int progressTextWidth = 0;
-
+void TxtReaderActivity::renderStatusBar() const {
   const float progress = totalPages > 0 ? (currentPage + 1) * 100.0f / totalPages : 0;
-
-  if (showProgressText || showProgressPercentage || showBookPercentage) {
-    char progressStr[32];
-    if (showProgressPercentage) {
-      snprintf(progressStr, sizeof(progressStr), "%d/%d %.0f%%", currentPage + 1, totalPages, progress);
-    } else if (showBookPercentage) {
-      snprintf(progressStr, sizeof(progressStr), "%.0f%%", progress);
-    } else {
-      snprintf(progressStr, sizeof(progressStr), "%d/%d", currentPage + 1, totalPages);
-    }
-
-    progressTextWidth = renderer.getTextWidth(SMALL_FONT_ID, progressStr);
-    renderer.drawText(SMALL_FONT_ID, renderer.getScreenWidth() - orientedMarginRight - progressTextWidth, textY,
-                      progressStr);
+  std::string title;
+  if (SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE) {
+    title = txt->getTitle();
   }
-
-  if (showProgressBar) {
-    // Draw progress bar at the very bottom of the screen, from edge to edge of viewable area
-    GUI.drawReadingProgressBar(renderer, static_cast<size_t>(progress));
-  }
-
-  if (showChapterProgressBar) {
-    // For text mode, treat the entire book as one chapter, so chapter progress == book progress
-    GUI.drawReadingProgressBar(renderer, static_cast<size_t>(progress));
-  }
-
-  if (showBattery) {
-    GUI.drawBatteryLeft(renderer, Rect{orientedMarginLeft, textY, metrics.batteryWidth, metrics.batteryHeight},
-                        showBatteryPercentage);
-  }
-
-  if (showTitle) {
-    const int titleMarginLeft = 50 + 30 + orientedMarginLeft;
-    const int titleMarginRight = progressTextWidth + 30 + orientedMarginRight;
-    const int availableTextWidth = renderer.getScreenWidth() - titleMarginLeft - titleMarginRight;
-
-    std::string title = txt->getTitle();
-    int titleWidth = renderer.getTextWidth(SMALL_FONT_ID, title.c_str());
-    if (titleWidth > availableTextWidth) {
-      title = renderer.truncatedText(SMALL_FONT_ID, title.c_str(), availableTextWidth);
-      titleWidth = renderer.getTextWidth(SMALL_FONT_ID, title.c_str());
-    }
-
-    renderer.drawText(SMALL_FONT_ID, titleMarginLeft + (availableTextWidth - titleWidth) / 2, textY, title.c_str());
-  }
+  GUI.drawStatusBar(renderer, progress, currentPage + 1, totalPages, title);
 }
 
 void TxtReaderActivity::saveProgress() const {
@@ -617,7 +480,6 @@ void TxtReaderActivity::saveProgress() const {
     data[2] = 0;
     data[3] = 0;
     f.write(data, 4);
-    f.close();
   }
 }
 
@@ -635,7 +497,6 @@ void TxtReaderActivity::loadProgress() {
       }
       LOG_DBG("TRS", "Loaded progress: page %d/%d", currentPage, totalPages);
     }
-    f.close();
   }
 }
 
@@ -664,7 +525,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, magic);
   if (magic != CACHE_MAGIC) {
     LOG_DBG("TRS", "Cache magic mismatch, rebuilding");
-    f.close();
     return false;
   }
 
@@ -672,7 +532,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, version);
   if (version != CACHE_VERSION) {
     LOG_DBG("TRS", "Cache version mismatch (%d != %d), rebuilding", version, CACHE_VERSION);
-    f.close();
     return false;
   }
 
@@ -680,7 +539,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, fileSize);
   if (fileSize != txt->getFileSize()) {
     LOG_DBG("TRS", "Cache file size mismatch, rebuilding");
-    f.close();
     return false;
   }
 
@@ -688,7 +546,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, cachedWidth);
   if (cachedWidth != viewportWidth) {
     LOG_DBG("TRS", "Cache viewport width mismatch, rebuilding");
-    f.close();
     return false;
   }
 
@@ -696,7 +553,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, cachedLines);
   if (cachedLines != linesPerPage) {
     LOG_DBG("TRS", "Cache lines per page mismatch, rebuilding");
-    f.close();
     return false;
   }
 
@@ -704,7 +560,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, fontId);
   if (fontId != cachedFontId) {
     LOG_DBG("TRS", "Cache font ID mismatch (%d != %d), rebuilding", fontId, cachedFontId);
-    f.close();
     return false;
   }
 
@@ -712,7 +567,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, margin);
   if (margin != cachedScreenMargin) {
     LOG_DBG("TRS", "Cache screen margin mismatch, rebuilding");
-    f.close();
     return false;
   }
 
@@ -720,7 +574,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
   serialization::readPod(f, alignment);
   if (alignment != cachedParagraphAlignment) {
     LOG_DBG("TRS", "Cache paragraph alignment mismatch, rebuilding");
-    f.close();
     return false;
   }
 
@@ -753,7 +606,6 @@ bool TxtReaderActivity::loadPageIndexCache() {
     pageOffsets.push_back(offset);
   }
 
-  f.close();
   totalPages = pageOffsets.size();
   LOG_DBG("TRS", "Loaded page index cache: %d pages", totalPages);
   return true;
@@ -785,6 +637,5 @@ void TxtReaderActivity::savePageIndexCache() const {
     serialization::writePod(f, static_cast<uint32_t>(offset));
   }
 
-  f.close();
   LOG_DBG("TRS", "Saved page index cache: %d pages", totalPages);
 }

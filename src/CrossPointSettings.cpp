@@ -58,6 +58,7 @@ void applyLegacyFrontButtonLayout(CrossPointSettings& settings) {
       break;
   }
 }
+
 }  // namespace
 
 void CrossPointSettings::validateFrontButtonMapping(CrossPointSettings& settings) {
@@ -137,7 +138,6 @@ bool CrossPointSettings::loadFromBinaryFile() {
   // Accept versions 1 through SETTINGS_FILE_VERSION for binary migration
   if (version < 1 || version > SETTINGS_FILE_VERSION) {
     LOG_ERR("CPS", "Deserialization failed: Unknown version %u", version);
-    inputFile.close();
     Storage.remove(SETTINGS_FILE_BIN);
     return false;
   }
@@ -162,7 +162,7 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, shortPwrBtn, SHORT_PWRBTN_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    readAndValidate(inputFile, statusBar, STATUS_BAR_MODE_COUNT);
+    readAndValidate(inputFile, statusBar, STATUS_BAR_MODE_COUNT);  // legacy
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, orientation, ORIENTATION_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
@@ -272,7 +272,6 @@ bool CrossPointSettings::loadFromBinaryFile() {
     applyLegacyFrontButtonLayout(*this);
   }
 
-  inputFile.close();
   LOG_DBG("CPS", "Settings loaded from binary file");
   return true;
 }

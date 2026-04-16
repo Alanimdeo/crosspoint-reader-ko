@@ -72,7 +72,6 @@ void I18n::loadSettings() {
   serialization::readPod(file, version);
   if (version != SETTINGS_VERSION) {
     LOG_DBG("I18N", "Settings version mismatch");
-    file.close();
     return;
   }
 
@@ -82,15 +81,13 @@ void I18n::loadSettings() {
     _language = static_cast<Language>(lang);
     LOG_DBG("I18N", "Loaded language: %d", static_cast<int>(_language));
   }
-
-  file.close();
 }
 
 // Generate character set for a specific language
 const char* I18n::getCharacterSet(Language lang) {
   const auto langIndex = static_cast<size_t>(lang);
   if (langIndex >= static_cast<size_t>(Language::_COUNT)) {
-    lang = Language::ENGLISH;  // Fallback to first language
+    lang = Language::EN;  // Fallback to first language
   }
 
   return CHARACTER_SETS[static_cast<size_t>(lang)];
