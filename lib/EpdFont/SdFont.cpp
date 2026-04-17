@@ -326,10 +326,12 @@ bool SdFontData::loadGlyphFromSD(int glyphIndex, EpdGlyph* outGlyph) const {
     return false;
   }
 
-  // Convert from file format to runtime format
+  // Convert from file format to runtime format.
+  // .epdfont v1 stores advanceX as integer pixels (uint8); EpdGlyph.advanceX is
+  // 12.4 fixed-point pixels (fp4). Shift left by 4 to upcast pixels -> fp4.
   outGlyph->width = fileGlyph.width;
   outGlyph->height = fileGlyph.height;
-  outGlyph->advanceX = fileGlyph.advanceX;
+  outGlyph->advanceX = static_cast<uint16_t>(fileGlyph.advanceX) << fp4::FRAC_BITS;
   outGlyph->left = fileGlyph.left;
   outGlyph->top = fileGlyph.top;
   outGlyph->dataLength = static_cast<uint16_t>(fileGlyph.dataLength);
@@ -538,7 +540,7 @@ void SdFont::getTextDimensions(const char* string, int* w, int* h) const {
     maxX = std::max(maxX, cursorX + glyph->left + glyph->width);
     minY = std::min(minY, cursorY + glyph->top - glyph->height);
     maxY = std::max(maxY, cursorY + glyph->top);
-    cursorX += glyph->advanceX;
+    cursorX += fp4::toPixel(glyph->advanceX);  // advanceX is 12.4 fixed-point pixels
   }
 
   *w = maxX - minX;

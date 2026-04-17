@@ -58,12 +58,18 @@ struct EpdFontInterval {
 
 /**
  * Glyph data - 16 bytes
- * Same as EpdGlyph but with explicit packing
+ *
+ * NOTE: file format diverges from runtime EpdGlyph for advanceX.
+ *   File:    uint8_t advanceX in *integer pixels* (legacy v1 layout, max 255 px).
+ *   Runtime: uint16_t advanceX in 12.4 fixed-point pixels (upstream 1.2.0+).
+ * SdFontData::loadGlyphFromSD performs the `<< fp4::FRAC_BITS` upcast on read so
+ * the GfxRenderer differential-rounding path works identically to flash fonts.
+ * Generators (e.g. ttf_to_epdfont.py) keep writing integer pixels.
  */
 struct EpdFontGlyph {
   uint8_t width;        // Bitmap width in pixels
   uint8_t height;       // Bitmap height in pixels
-  uint8_t advanceX;     // Horizontal advance
+  uint8_t advanceX;     // Horizontal advance, integer pixels (see note above)
   uint8_t reserved;     // Reserved for alignment
   int16_t left;         // X offset from cursor
   int16_t top;          // Y offset from cursor
