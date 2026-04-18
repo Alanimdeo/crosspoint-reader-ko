@@ -763,13 +763,21 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   }
   const auto tDisplay = millis();
 
-  // Save bw buffer to reset buffer state after grayscale data sync
-  renderer.storeBwBuffer();
+  // Save bw buffer to reset buffer state after grayscale data sync.
+  // If allocation fails (heap fragmented), skip the grayscale pass entirely —
+  // the BW framebuffer already holds the rendered page, so leave it untouched.
+  // Entering the grayscale path without a snapshot would wipe the framebuffer
+  // via clearScreen() and then fail to restore it, eventually triggering abort()
+  // on follow-up allocations inside page->render().
+  const bool bwStored = renderer.storeBwBuffer();
+  if (!bwStored) {
+    LOG_ERR("ERS", "storeBwBuffer failed (heap fragmented) — skipping grayscale pass");
+  }
   const auto tBwStore = millis();
 
   // grayscale rendering
   // TODO: Only do this if font supports it
-  if (SETTINGS.textAntiAliasing) {
+  if (bwStored && SETTINGS.textAntiAliasing) {
     renderer.clearScreen(0x00);
     renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
     page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
