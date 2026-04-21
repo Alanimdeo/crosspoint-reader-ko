@@ -15,6 +15,7 @@ constexpr char latestReleaseUrl[] =
 /* This is buffer and size holder to keep upcoming data from latestReleaseUrl */
 char* local_buf;
 int output_len;
+int buf_cap;
 
 /*
  * When esp_crt_bundle.h included, it is pointing wrong header file
@@ -29,35 +30,53 @@ esp_err_t http_client_set_header_cb(esp_http_client_handle_t http_client) {
   return esp_http_client_set_header(http_client, "User-Agent", "CrossPoint-ESP32-" CROSSPOINT_VERSION);
 }
 
+/*
+ * Initial buffer size used for chunked responses (no Content-Length header).
+ * Grows geometrically via realloc if the response exceeds this.
+ */
+constexpr int kChunkedInitialBuf = 16384;
+
 esp_err_t event_handler(esp_http_client_event_t* event) {
   /* We do interested in only HTTP_EVENT_ON_DATA event only */
   if (event->event_id != HTTP_EVENT_ON_DATA) return ESP_OK;
 
-  if (!esp_http_client_is_chunked_response(event->client)) {
-    int content_len = esp_http_client_get_content_length(event->client);
-    int copy_len = 0;
+  const bool chunked = esp_http_client_is_chunked_response(event->client);
+  int content_len = esp_http_client_get_content_length(event->client);
 
+  /* First data event: allocate the backing buffer. */
+  if (local_buf == NULL) {
+    const int initial = (chunked || content_len <= 0) ? kChunkedInitialBuf : (content_len + 1);
+    local_buf = static_cast<char*>(calloc(initial, sizeof(char)));
+    output_len = 0;
+    buf_cap = initial;
     if (local_buf == NULL) {
-      /* local_buf life span is tracked by caller checkForUpdate */
-      local_buf = static_cast<char*>(calloc(content_len + 1, sizeof(char)));
-      output_len = 0;
-      if (local_buf == NULL) {
-        LOG_ERR("OTA", "HTTP Client Out of Memory Failed, Allocation %d", content_len);
-        return ESP_ERR_NO_MEM;
-      }
+      LOG_ERR("OTA", "HTTP Client Out of Memory Failed, Allocation %d", initial);
+      return ESP_ERR_NO_MEM;
     }
-    copy_len = min(event->data_len, (content_len - output_len));
-    if (copy_len) {
-      memcpy(local_buf + output_len, event->data, copy_len);
-    }
-    output_len += copy_len;
-  } else {
-    /* Code might be hits here, It happened once (for version checking) but I need more logs to handle that */
-    int chunked_len;
-    esp_http_client_get_chunk_length(event->client, &chunked_len);
-    LOG_DBG("OTA", "esp_http_client_is_chunked_response failed, chunked_len: %d", chunked_len);
   }
 
+  /* Grow buffer for chunked/unknown-length responses. */
+  if (output_len + event->data_len + 1 > buf_cap) {
+    int new_cap = buf_cap * 2;
+    while (new_cap < output_len + event->data_len + 1) new_cap *= 2;
+    char* new_buf = static_cast<char*>(realloc(local_buf, new_cap));
+    if (new_buf == NULL) {
+      LOG_ERR("OTA", "HTTP Client realloc Failed, target %d", new_cap);
+      return ESP_ERR_NO_MEM;
+    }
+    local_buf = new_buf;
+    memset(local_buf + buf_cap, 0, new_cap - buf_cap);
+    buf_cap = new_cap;
+  }
+
+  int copy_len = event->data_len;
+  if (!chunked && content_len > 0) {
+    copy_len = min(copy_len, content_len - output_len);
+  }
+  if (copy_len > 0) {
+    memcpy(local_buf + output_len, event->data, copy_len);
+    output_len += copy_len;
+  }
   return ESP_OK;
 } /* event_handler */
 } /* namespace */
@@ -69,6 +88,8 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
 
   esp_http_client_config_t client_config = {
       .url = latestReleaseUrl,
+      /* 15s covers WiFi-warmup TLS handshake jitter right after WifiSelection. */
+      .timeout_ms = 15000,
       .event_handler = event_handler,
       /* Default HTTP client buffer size 512 byte only */
       .buffer_size = 8192,
@@ -89,31 +110,42 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
     }
   } localBufCleaner = {&local_buf};
 
-  esp_http_client_handle_t client_handle = esp_http_client_init(&client_config);
-  if (!client_handle) {
-    LOG_ERR("OTA", "HTTP Client Handle Failed");
-    return INTERNAL_UPDATE_ERROR;
-  }
+  /* Reset per-call state: prior aborted attempt may have left stale values. */
+  local_buf = NULL;
+  output_len = 0;
+  buf_cap = 0;
 
-  esp_err = esp_http_client_set_header(client_handle, "User-Agent", "CrossPoint-ESP32-" CROSSPOINT_VERSION);
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_http_client_set_header Failed : %s", esp_err_to_name(esp_err));
-    esp_http_client_cleanup(client_handle);
-    return INTERNAL_UPDATE_ERROR;
-  }
+  esp_err = ESP_FAIL;
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    esp_http_client_handle_t client_handle = esp_http_client_init(&client_config);
+    if (!client_handle) {
+      LOG_ERR("OTA", "HTTP Client Handle Failed");
+      return INTERNAL_UPDATE_ERROR;
+    }
 
-  esp_err = esp_http_client_perform(client_handle);
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_http_client_perform Failed : %s", esp_err_to_name(esp_err));
+    esp_err = esp_http_client_set_header(client_handle, "User-Agent", "CrossPoint-ESP32-" CROSSPOINT_VERSION);
+    if (esp_err != ESP_OK) {
+      LOG_ERR("OTA", "esp_http_client_set_header Failed : %s", esp_err_to_name(esp_err));
+      esp_http_client_cleanup(client_handle);
+      return INTERNAL_UPDATE_ERROR;
+    }
+
+    esp_err = esp_http_client_perform(client_handle);
     esp_http_client_cleanup(client_handle);
+    if (esp_err == ESP_OK && output_len > 0) break;
+
+    LOG_ERR("OTA", "perform attempt %d failed: %s (len=%d)", attempt, esp_err_to_name(esp_err), output_len);
+    /* Drop any partial buffer before retrying. */
+    if (local_buf) {
+      free(local_buf);
+      local_buf = NULL;
+    }
+    output_len = 0;
+    buf_cap = 0;
+    delay(500);
+  }
+  if (esp_err != ESP_OK || output_len == 0) {
     return HTTP_ERROR;
-  }
-
-  /* esp_http_client_close will be called inside cleanup as well*/
-  esp_err = esp_http_client_cleanup(client_handle);
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_http_client_cleanup Failed : %s", esp_err_to_name(esp_err));
-    return INTERNAL_UPDATE_ERROR;
   }
 
   filter["tag_name"] = true;
@@ -247,7 +279,7 @@ bool OtaUpdater::isUpdateNewerKO() const {
   return updateKo > currentKo;
 }
 
-OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() {
+OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgress, void* ctx) {
   if (!isUpdateNewerKO()) {
     return UPDATE_OLDER_ERROR;
   }
@@ -285,12 +317,27 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate() {
     return INTERNAL_UPDATE_ERROR;
   }
 
+  uint32_t lastLogMs = 0;
   do {
     esp_err = esp_https_ota_perform(ota_handle);
     processedSize = esp_https_ota_get_image_len_read(ota_handle);
-    /* Sent signal to  OtaUpdateActivity */
     render = true;
-    delay(100);  // TODO: should we replace this with something better?
+    /*
+     * Drive the UI directly; the caller's loop() is blocked inside this call
+     * so the `render` flag alone would never reach the render task.
+     */
+    if (onProgress) onProgress(ctx);
+
+    /* Heartbeat log every ~2s so serial shows download is alive during slow
+     * TLS handshake / redirect phases (progress counter stays at 0 until the
+     * HTTP body starts flowing). */
+    const uint32_t now = millis();
+    if (now - lastLogMs > 2000) {
+      LOG_DBG("OTA", "perform: read=%u / %u", static_cast<unsigned>(processedSize), static_cast<unsigned>(totalSize));
+      lastLogMs = now;
+    }
+
+    delay(50);
   } while (esp_err == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
 
   /* Return back to default power saving for WiFi in case of failing */

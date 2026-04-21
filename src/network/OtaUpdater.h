@@ -31,10 +31,12 @@ class OtaUpdater {
 
   bool getRender() const { return render; }
 
+  using ProgressCallback = void (*)(void* ctx);
+
   OtaUpdater() = default;
   bool isUpdateNewer() const;
   bool isUpdateNewerKO() const;
   const std::string& getLatestVersion() const;
   OtaUpdaterError checkForUpdate();
-  OtaUpdaterError installUpdate();
+  OtaUpdaterError installUpdate(ProgressCallback onProgress = nullptr, void* ctx = nullptr);
 };
