@@ -10,11 +10,14 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "EpubReaderPercentSelectionActivity.h"
 #include "MappedInputManager.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "TxtReaderMenuActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/ScreenshotUtil.h"
 
 namespace {
 constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
@@ -23,6 +26,27 @@ constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
 // can reset to the start if the user changed font/margin/etc. since last read.
 constexpr uint32_t PROGRESS_MAGIC = 0x54585450;  // "TXTP"
 constexpr uint8_t PROGRESS_VERSION = 1;
+
+// Auto page-turn options in pages-per-minute. Index 0 disables; the rest mirror
+// the EPUB reader's choices so users see consistent values across formats.
+constexpr int PAGE_TURN_RATES[] = {1, 1, 3, 6, 12};
+constexpr size_t PAGE_TURN_RATES_COUNT = sizeof(PAGE_TURN_RATES) / sizeof(PAGE_TURN_RATES[0]);
+
+// Long-press multi-page jump steps. Index 0 disables (long-press behaves like
+// a normal page turn); other entries become the jump distance.
+constexpr int PAGE_JUMP_STEPS[] = {0, 10, 20, 50, 100};
+constexpr size_t PAGE_JUMP_STEPS_COUNT = sizeof(PAGE_JUMP_STEPS) / sizeof(PAGE_JUMP_STEPS[0]);
+
+// Held duration above which a navigation button release counts as a "jump"
+// instead of a single page turn. Matches the GO_HOME_MS feel so the user only
+// has one threshold to learn.
+constexpr unsigned long PAGE_JUMP_HOLD_MS = 1000;
+
+int clampPercent(int percent) {
+  if (percent < 0) return 0;
+  if (percent > 100) return 100;
+  return percent;
+}
 
 // Find UTF-8 character boundary at or before pos
 size_t findUtf8Boundary(const std::string& str, size_t pos) {
@@ -126,6 +150,57 @@ void TxtReaderActivity::onExit() {
 }
 
 void TxtReaderActivity::loop() {
+  // Skip one frame after a sub-activity returns so the release event that
+  // closed it doesn't fall through into navigation here.
+  if (skipNextButtonCheck) {
+    skipNextButtonCheck = false;
+    return;
+  }
+
+  // Auto page turn handling — fire pageTurn(true) on the configured cadence
+  // and let any user input cancel it.
+  if (automaticPageTurnActive) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
+        mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      automaticPageTurnActive = false;
+      requestUpdate();
+      return;
+    }
+    if (RenderLock::peek()) {
+      lastPageTurnTime = millis();
+      return;
+    }
+    if ((millis() - lastPageTurnTime) >= pageTurnDuration) {
+      pageTurn(true);
+      return;
+    }
+  }
+
+  // Open the reader menu on Confirm release.
+  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    const float progress = fileSize > 0 ? (currentOffset * 100.0f / fileSize) : 0.0f;
+    const int bookProgressPercent = clampPercent(static_cast<int>(progress + 0.5f));
+    startActivityForResult(
+        std::make_unique<TxtReaderMenuActivity>(renderer, mappedInput, txt ? txt->getTitle() : std::string(),
+                                                estimatedCurrentPage(), estimatedTotalPages(), bookProgressPercent,
+                                                SETTINGS.orientation, currentPageTurnOption, currentPageJumpOption),
+        [this](const ActivityResult& result) {
+          const auto& menu = std::get<MenuResult>(result.data);
+          // Apply orientation, auto-turn, and page-jump even when cancelled —
+          // the user cycled them inside the menu and expects them to stick.
+          applyOrientation(menu.orientation);
+          toggleAutoPageTurn(menu.pageTurnOption);
+          currentPageJumpOption = menu.pageJumpOption;
+          skipNextButtonCheck = true;
+          if (!result.isCancelled) {
+            onReaderMenuConfirm(static_cast<TxtReaderMenuActivity::MenuAction>(menu.action));
+          } else {
+            requestUpdate();
+          }
+        });
+    return;
+  }
+
   // Long press BACK (1s+) goes to file selection
   if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= ReaderUtils::GO_HOME_MS) {
     activityManager.goToFileBrowser(txt ? txt->getPath() : "");
@@ -139,12 +214,40 @@ void TxtReaderActivity::loop() {
     return;
   }
 
+  // Long-press multi-page jump on navigation buttons. When enabled, switch to
+  // release-based detection so we can distinguish short tap (single page) from
+  // long hold (jumpPages step). When disabled, fall through to the default
+  // press-based path below to preserve original snappy feel.
+  if (currentPageJumpOption > 0 && currentPageJumpOption < PAGE_JUMP_STEPS_COUNT) {
+    const bool prevReleased = mappedInput.wasReleased(MappedInputManager::Button::PageBack) ||
+                              mappedInput.wasReleased(MappedInputManager::Button::Left);
+    const bool nextReleased = mappedInput.wasReleased(MappedInputManager::Button::PageForward) ||
+                              mappedInput.wasReleased(MappedInputManager::Button::Right);
+    if (prevReleased || nextReleased) {
+      const unsigned long held = mappedInput.getHeldTime();
+      const int step = (held >= PAGE_JUMP_HOLD_MS) ? PAGE_JUMP_STEPS[currentPageJumpOption] : 1;
+      jumpPages(nextReleased ? step : -step);
+      return;
+    }
+    // Power button is always release-driven, so honor its configured page-turn
+    // role even while we're intercepting nav-button presses.
+    if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
+        mappedInput.wasReleased(MappedInputManager::Button::Power)) {
+      pageTurn(true);
+    }
+    return;
+  }
+
   auto [prevTriggered, nextTriggered] = ReaderUtils::detectPageTurn(mappedInput);
   if (!prevTriggered && !nextTriggered) {
     return;
   }
 
-  if (prevTriggered) {
+  pageTurn(nextTriggered);
+}
+
+void TxtReaderActivity::pageTurn(const bool isForwardTurn) {
+  if (!isForwardTurn) {
     if (currentOffset == 0) {
       return;  // already at start
     }
@@ -154,20 +257,147 @@ void TxtReaderActivity::loop() {
     } else {
       currentOffset = findBackwardPageStart(currentOffset);
     }
+    lastPageTurnTime = millis();
     requestUpdate();
-  } else if (nextTriggered) {
-    if (currentEndOffset >= fileSize) {
+    return;
+  }
+
+  if (currentEndOffset >= fileSize) {
+    automaticPageTurnActive = false;
+    onGoHome();
+    return;
+  }
+  // Push the page we're leaving so Back can return to it, capped so we
+  // don't grow forever on very long reads.
+  if (backHistory.size() >= MAX_BACK_HISTORY) {
+    backHistory.erase(backHistory.begin(), backHistory.begin() + (MAX_BACK_HISTORY / 4));
+  }
+  backHistory.push_back(currentOffset);
+  currentOffset = currentEndOffset;
+  lastPageTurnTime = millis();
+  requestUpdate();
+}
+
+void TxtReaderActivity::jumpPages(const int deltaPages) {
+  if (deltaPages == 0 || fileSize == 0) {
+    return;
+  }
+  // Use the running per-page byte estimate so we can skip without paginating.
+  // Without an estimate (very first frame) bail out instead of guessing wildly.
+  const size_t perPage = estBytesPerPage > 0 ? estBytesPerPage : 0;
+  if (perPage == 0) {
+    pageTurn(deltaPages > 0);
+    return;
+  }
+
+  size_t target;
+  if (deltaPages > 0) {
+    const size_t deltaBytes = perPage * static_cast<size_t>(deltaPages);
+    target = (currentOffset + deltaBytes >= fileSize) ? fileSize - 1 : currentOffset + deltaBytes;
+  } else {
+    const size_t deltaBytes = perPage * static_cast<size_t>(-deltaPages);
+    target = (currentOffset > deltaBytes) ? currentOffset - deltaBytes : 0;
+  }
+  target = snapToLineStart(target);
+
+  // Push current position so Back can return after the jump, then reset state.
+  if (target == currentOffset) {
+    return;
+  }
+  if (backHistory.size() >= MAX_BACK_HISTORY) {
+    backHistory.erase(backHistory.begin(), backHistory.begin() + (MAX_BACK_HISTORY / 4));
+  }
+  backHistory.push_back(currentOffset);
+  currentOffset = target;
+  currentEndOffset = target;
+  lastPageTurnTime = millis();
+  requestUpdate();
+}
+
+void TxtReaderActivity::jumpToPercent(int percent) {
+  if (fileSize == 0) {
+    return;
+  }
+  percent = clampPercent(percent);
+
+  // Overflow-safe (fileSize/100)*percent + (fileSize%100)*percent/100.
+  size_t target = (fileSize / 100) * static_cast<size_t>(percent) +
+                  (fileSize % 100) * static_cast<size_t>(percent) / 100;
+  if (percent >= 100 && fileSize > 0) {
+    target = fileSize - 1;
+  }
+  target = snapToLineStart(target);
+
+  // Reset history so backward navigation after a jump uses backward-scan,
+  // matching the EPUB jump behavior of an effective fresh location.
+  backHistory.clear();
+  currentOffset = target;
+  currentEndOffset = target;
+  lastPageTurnTime = millis();
+  requestUpdate();
+}
+
+void TxtReaderActivity::applyOrientation(const uint8_t orientation) {
+  if (SETTINGS.orientation == orientation) {
+    return;
+  }
+  SETTINGS.orientation = orientation;
+  SETTINGS.saveToFile();
+  ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+  // Force the layout to recompute viewport + lines per page on next render.
+  initialized = false;
+  currentOffset = snapToLineStart(currentOffset);
+  currentEndOffset = currentOffset;
+  backHistory.clear();
+  estBytesPerPage = 0;
+  requestUpdate();
+}
+
+void TxtReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption) {
+  currentPageTurnOption = selectedPageTurnOption;
+  if (selectedPageTurnOption == 0 || selectedPageTurnOption >= PAGE_TURN_RATES_COUNT) {
+    automaticPageTurnActive = false;
+    return;
+  }
+  lastPageTurnTime = millis();
+  pageTurnDuration = (1UL * 60 * 1000) / static_cast<unsigned long>(PAGE_TURN_RATES[selectedPageTurnOption]);
+  automaticPageTurnActive = true;
+  requestUpdate();
+}
+
+void TxtReaderActivity::onReaderMenuConfirm(const TxtReaderMenuActivity::MenuAction action) {
+  switch (action) {
+    case TxtReaderMenuActivity::MenuAction::GO_TO_PERCENT: {
+      const float progress = fileSize > 0 ? (currentOffset * 100.0f / fileSize) : 0.0f;
+      const int initialPercent = clampPercent(static_cast<int>(progress + 0.5f));
+      startActivityForResult(
+          std::make_unique<EpubReaderPercentSelectionActivity>(renderer, mappedInput, initialPercent),
+          [this](const ActivityResult& result) {
+            skipNextButtonCheck = true;
+            if (!result.isCancelled) {
+              jumpToPercent(std::get<PercentResult>(result.data).percent);
+            } else {
+              requestUpdate();
+            }
+          });
+      break;
+    }
+    case TxtReaderMenuActivity::MenuAction::SCREENSHOT: {
+      pendingScreenshot = true;
+      requestUpdate();
+      break;
+    }
+    case TxtReaderMenuActivity::MenuAction::GO_HOME: {
       onGoHome();
       return;
     }
-    // Push the page we're leaving so Back can return to it, capped so we
-    // don't grow forever on very long reads.
-    if (backHistory.size() >= MAX_BACK_HISTORY) {
-      backHistory.erase(backHistory.begin(), backHistory.begin() + (MAX_BACK_HISTORY / 4));
-    }
-    backHistory.push_back(currentOffset);
-    currentOffset = currentEndOffset;
-    requestUpdate();
+    case TxtReaderMenuActivity::MenuAction::AUTO_PAGE_TURN:
+    case TxtReaderMenuActivity::MenuAction::PAGE_JUMP_STEP:
+    case TxtReaderMenuActivity::MenuAction::ROTATE_SCREEN:
+      // Inline-cycle options are applied via menu.orientation /
+      // menu.pageTurnOption / menu.pageJumpOption already consumed above.
+      requestUpdate();
+      break;
   }
 }
 
@@ -460,6 +690,11 @@ void TxtReaderActivity::render(RenderLock&&) {
 
   // Save progress
   saveProgress();
+
+  if (pendingScreenshot) {
+    pendingScreenshot = false;
+    ScreenshotUtil::takeScreenshot(renderer);
+  }
 }
 
 void TxtReaderActivity::renderPage() {
@@ -547,7 +782,11 @@ void TxtReaderActivity::renderPage() {
 void TxtReaderActivity::renderStatusBar() const {
   const float progress = fileSize > 0 ? (currentOffset * 100.0f / fileSize) : 0.0f;
   std::string title;
-  if (SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE) {
+  if (automaticPageTurnActive && pageTurnDuration > 0) {
+    // Mirror the EPUB reader: while auto-turn is on, override the title with
+    // the current pages-per-minute rate so the user can verify it.
+    title = std::string(tr(STR_AUTO_TURN_ENABLED)) + std::to_string(60UL * 1000UL / pageTurnDuration);
+  } else if (SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE) {
     title = txt->getTitle();
   }
   GUI.drawStatusBar(renderer, progress, estimatedCurrentPage(), estimatedTotalPages(), title);

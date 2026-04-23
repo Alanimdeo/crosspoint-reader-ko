@@ -323,6 +323,7 @@ STR_CHARACTER_WRAP: "글자 단위 줄바꿈"
 
 STR_AUTO_TURN_ENABLED: "자동 넘김: "
 STR_AUTO_TURN_PAGES_PER_MIN: "자동 넘김 (분당 페이지)"
+STR_PAGE_JUMP_STEP: "길게 눌러 페이지 이동"
 STR_BATTERY: "배터리"
 STR_BOOK: "책"
 STR_BOOK_PROGRESS_PERCENTAGE: "책 진행률 %"
