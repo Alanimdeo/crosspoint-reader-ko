@@ -426,6 +426,7 @@ void loop() {
 
   const unsigned long activityStartTime = millis();
   activityManager.loop();
+  // cppcheck-suppress unreadVariable  ; referenced only inside LOG_DBG, which compiles out at LOG_LEVEL<2
   const unsigned long activityDuration = millis() - activityStartTime;
 
   const unsigned long loopDuration = millis() - loopStartTime;

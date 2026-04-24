@@ -1,5 +1,6 @@
 #pragma once
 
+#include <HalClock.h>
 #include <HalTiltSensor.h>
 #include <I18n.h>
 
@@ -135,10 +136,6 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                           StrId::STR_CUSTOMISE_STATUS_BAR),
         SettingInfo::Toggle(StrId::STR_BATTERY, &CrossPointSettings::statusBarBattery, "statusBarBattery",
                             StrId::STR_CUSTOMISE_STATUS_BAR),
-        SettingInfo::Toggle(StrId::STR_CLOCK, &CrossPointSettings::statusBarClock, "statusBarClock",
-                            StrId::STR_CUSTOMISE_STATUS_BAR),
-        SettingInfo::Value(StrId::STR_CLOCK_UTC_OFFSET, &CrossPointSettings::clockUtcOffset, {0, 52, 1},
-                           "clockUtcOffset", StrId::STR_CUSTOMISE_STATUS_BAR),
     };
     // Only show tilt page turn setting when the QMI8658 IMU is present (X3).
     // Keeps the setting menu clean on X4 where the toggle has no effect.
@@ -146,11 +143,19 @@ inline const std::vector<SettingInfo>& getSettingsList() {
       for (auto it = v.begin(); it != v.end(); ++it) {
         if (it->nameId == StrId::STR_SHORT_PWR_BTN) {
           v.insert(it + 1, SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
-                                             {StrId::STR_STATE_OFF, StrId::STR_NORMAL, StrId::STR_INVERTED},
+                                             {StrId::STR_STATE_OFF, StrId::STR_TILT_NORMAL, StrId::STR_TILT_INVERTED},
                                              "tiltPageTurn", StrId::STR_CAT_CONTROLS));
           break;
         }
       }
+    }
+    // Clock settings only make sense on devices with an RTC (X3 / DS3231).
+    // Without one the toggle renders nothing, so hide the whole section on X4.
+    if (halClock.isAvailable()) {
+      v.push_back(SettingInfo::Toggle(StrId::STR_CLOCK, &CrossPointSettings::statusBarClock, "statusBarClock",
+                                      StrId::STR_CUSTOMISE_STATUS_BAR));
+      v.push_back(SettingInfo::Value(StrId::STR_CLOCK_UTC_OFFSET, &CrossPointSettings::clockUtcOffset, {0, 52, 1},
+                                     "clockUtcOffset", StrId::STR_CUSTOMISE_STATUS_BAR));
     }
     return v;
   }();

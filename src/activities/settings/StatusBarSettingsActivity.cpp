@@ -12,15 +12,21 @@
 #include "fontIds.h"
 
 namespace {
-constexpr int MENU_ITEMS = 8;
-const StrId menuNames[MENU_ITEMS] = {StrId::STR_CHAPTER_PAGE_COUNT,
-                                     StrId::STR_BOOK_PROGRESS_PERCENTAGE,
-                                     StrId::STR_PROGRESS_BAR,
-                                     StrId::STR_PROGRESS_BAR_THICKNESS,
-                                     StrId::STR_TITLE,
-                                     StrId::STR_BATTERY,
-                                     StrId::STR_CLOCK,
-                                     StrId::STR_CLOCK_UTC_OFFSET};
+// The last two entries (STR_CLOCK, STR_CLOCK_UTC_OFFSET) are only meaningful on
+// devices with a DS3231 RTC (X3). On X4 we hide them so users aren't offered a
+// toggle that never takes effect.
+constexpr int MENU_ITEMS_WITHOUT_CLOCK = 6;
+constexpr int MENU_ITEMS_WITH_CLOCK = 8;
+const StrId menuNames[MENU_ITEMS_WITH_CLOCK] = {StrId::STR_CHAPTER_PAGE_COUNT,
+                                                StrId::STR_BOOK_PROGRESS_PERCENTAGE,
+                                                StrId::STR_PROGRESS_BAR,
+                                                StrId::STR_PROGRESS_BAR_THICKNESS,
+                                                StrId::STR_TITLE,
+                                                StrId::STR_BATTERY,
+                                                StrId::STR_CLOCK,
+                                                StrId::STR_CLOCK_UTC_OFFSET};
+
+int menuItemsCount() { return halClock.isAvailable() ? MENU_ITEMS_WITH_CLOCK : MENU_ITEMS_WITHOUT_CLOCK; }
 
 // UTC offset range: 0 = UTC-12:00, 24 = UTC+0, 52 = UTC+14:00 (half-hour steps)
 constexpr uint8_t UTC_OFFSET_MIN = 0;
@@ -88,22 +94,22 @@ void StatusBarSettingsActivity::loop() {
 
   // Handle navigation
   buttonNavigator.onNextRelease([this] {
-    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, MENU_ITEMS);
+    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, menuItemsCount());
     requestUpdate();
   });
 
   buttonNavigator.onPreviousRelease([this] {
-    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, MENU_ITEMS);
+    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, menuItemsCount());
     requestUpdate();
   });
 
   buttonNavigator.onNextContinuous([this] {
-    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, MENU_ITEMS);
+    selectedIndex = ButtonNavigator::nextIndex(selectedIndex, menuItemsCount());
     requestUpdate();
   });
 
   buttonNavigator.onPreviousContinuous([this] {
-    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, MENU_ITEMS);
+    selectedIndex = ButtonNavigator::previousIndex(selectedIndex, menuItemsCount());
     requestUpdate();
   });
 }
@@ -154,7 +160,7 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
   const int contentHeight = pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing * 2;
   GUI.drawList(
-      renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(MENU_ITEMS),
+      renderer, Rect{0, contentTop, pageWidth, contentHeight}, static_cast<int>(menuItemsCount()),
       static_cast<int>(selectedIndex), [](int index) { return std::string(I18N.get(menuNames[index])); }, nullptr,
       nullptr,
       [this](int index) -> std::string {
