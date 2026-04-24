@@ -246,7 +246,8 @@ void TxtReaderActivity::loop() {
     return;
   }
 
-  auto [prevTriggered, nextTriggered] = ReaderUtils::detectPageTurn(mappedInput);
+  auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
+  (void)fromTilt;  // TXT has no chapter-skip; tilt origin is informational only.
   if (!prevTriggered && !nextTriggered) {
     return;
   }
