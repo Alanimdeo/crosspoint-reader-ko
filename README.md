@@ -1,5 +1,7 @@
 # CrossPoint Reader
 
+[![CI (build)](https://github.com/crosspoint-reader-ko/crosspoint-reader-ko/actions/workflows/ci.yml/badge.svg)](https://github.com/crosspoint-reader-ko/crosspoint-reader-ko/actions/workflows/ci.yml) [![Compile Release](https://github.com/crosspoint-reader-ko/crosspoint-reader-ko/actions/workflows/release.yml/badge.svg)](https://github.com/crosspoint-reader-ko/crosspoint-reader-ko/actions/workflows/release.yml)
+
 Firmware for the **Xteink X4** e-paper display reader (unaffiliated with Xteink).
 Built using **PlatformIO** and targeting the **ESP32-C3** microcontroller.
 
