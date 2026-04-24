@@ -10,8 +10,7 @@
 TxtReaderMenuActivity::TxtReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                              const std::string& title, const int currentPage, const int totalPages,
                                              const int bookProgressPercent, const uint8_t currentOrientation,
-                                             const uint8_t currentPageTurnOption,
-                                             const uint8_t currentPageJumpOption)
+                                             const uint8_t currentPageTurnOption, const uint8_t currentPageJumpOption)
     : Activity("TxtReaderMenu", renderer, mappedInput),
       menuItems(buildMenuItems()),
       title(title),
@@ -108,14 +107,16 @@ void TxtReaderMenuActivity::render(RenderLock&&) {
       contentX + (contentWidth - renderer.getTextWidth(UI_12_FONT_ID, truncTitle.c_str(), EpdFontFamily::BOLD)) / 2;
   renderer.drawText(UI_12_FONT_ID, titleX, 15 + contentY, truncTitle.c_str(), true, EpdFontFamily::BOLD);
 
-  // Progress summary (page N/M plus book %)
+  // Progress summary (page N/M plus book %) — centered within the content area
+  // so the text respects the same landscape/inverted hint gutters as the title.
   std::string progressLine;
   if (totalPages > 0) {
-    progressLine = std::to_string(currentPage) + "/" + std::to_string(totalPages) +
-                   std::string(tr(STR_PAGES_SEPARATOR));
+    progressLine =
+        std::to_string(currentPage) + "/" + std::to_string(totalPages) + std::string(tr(STR_PAGES_SEPARATOR));
   }
   progressLine += std::string(tr(STR_BOOK_PREFIX)) + std::to_string(bookProgressPercent) + "%";
-  renderer.drawCenteredText(UI_10_FONT_ID, 45, progressLine.c_str());
+  const int progressX = contentX + (contentWidth - renderer.getTextWidth(UI_10_FONT_ID, progressLine.c_str())) / 2;
+  renderer.drawText(UI_10_FONT_ID, progressX, 45 + contentY, progressLine.c_str());
 
   const int startY = 75 + contentY;
   constexpr int lineHeight = 30;

@@ -69,10 +69,18 @@ size_t findBreakPosition(const GfxRenderer& renderer, int fontId, const std::str
     return line.length();
   }
 
+  // Minimum advance is one whole UTF-8 codepoint. Splitting mid-sequence here
+  // produces invalid bytes at the next page's head and desynchronizes the
+  // byte-offset navigation.
+  size_t firstCharEnd = 1;
+  while (firstCharEnd < line.length() && (static_cast<unsigned char>(line[firstCharEnd]) & 0xC0) == 0x80) {
+    firstCharEnd++;
+  }
+
   // Binary search for the break point
-  size_t low = 1;  // At minimum 1 character
+  size_t low = firstCharEnd;
   size_t high = line.length();
-  size_t bestFit = 1;
+  size_t bestFit = firstCharEnd;
 
   while (low < high) {
     size_t mid = (low + high + 1) / 2;
@@ -109,7 +117,7 @@ size_t findBreakPosition(const GfxRenderer& renderer, int fontId, const std::str
     }
   }
 
-  return bestFit > 0 ? bestFit : 1;  // At minimum, consume 1 character
+  return bestFit;  // At minimum, consume one whole UTF-8 codepoint
 }
 }  // namespace
 
@@ -300,14 +308,21 @@ void TxtReaderActivity::jumpPages(const int deltaPages) {
   }
   target = snapToLineStart(target);
 
-  // Push current position so Back can return after the jump, then reset state.
   if (target == currentOffset) {
     return;
   }
-  if (backHistory.size() >= MAX_BACK_HISTORY) {
-    backHistory.erase(backHistory.begin(), backHistory.begin() + (MAX_BACK_HISTORY / 4));
+  // Only a forward jump lets Back return to the pre-jump page. On a backward
+  // jump, pushing the pre-jump offset would make the next PageBack jump
+  // forward — the opposite of what the user just asked for. Wipe history so
+  // Back keeps moving backward page-by-page.
+  if (deltaPages > 0) {
+    if (backHistory.size() >= MAX_BACK_HISTORY) {
+      backHistory.erase(backHistory.begin(), backHistory.begin() + (MAX_BACK_HISTORY / 4));
+    }
+    backHistory.push_back(currentOffset);
+  } else {
+    backHistory.clear();
   }
-  backHistory.push_back(currentOffset);
   currentOffset = target;
   currentEndOffset = target;
   lastPageTurnTime = millis();
@@ -321,9 +336,9 @@ void TxtReaderActivity::jumpToPercent(int percent) {
   percent = clampPercent(percent);
 
   // Overflow-safe (fileSize/100)*percent + (fileSize%100)*percent/100.
-  size_t target = (fileSize / 100) * static_cast<size_t>(percent) +
-                  (fileSize % 100) * static_cast<size_t>(percent) / 100;
-  if (percent >= 100 && fileSize > 0) {
+  size_t target =
+      (fileSize / 100) * static_cast<size_t>(percent) + (fileSize % 100) * static_cast<size_t>(percent) / 100;
+  if (percent >= 100) {
     target = fileSize - 1;
   }
   target = snapToLineStart(target);
@@ -664,7 +679,14 @@ void TxtReaderActivity::render(RenderLock&&) {
   }
 
   // Bounds check
-  if (currentOffset >= fileSize) currentOffset = snapToLineStart(fileSize);
+  // Recover from an out-of-range offset (e.g. settings change shrinking the
+  // effective reachable position). snapToLineStart(fileSize) returns fileSize
+  // itself and would leave loadPageAtOffset with nothing to read, so fall back
+  // to the last actual page start. The fileSize == 0 case was handled above.
+  if (currentOffset >= fileSize) {
+    currentOffset = findBackwardPageStart(fileSize);
+    currentEndOffset = currentOffset;
+  }
 
   LOG_DBG("TRS", "Rendering page at offset %zu", currentOffset);
 
@@ -713,8 +735,7 @@ void TxtReaderActivity::renderPage() {
         // didn't consume a full source line AND it isn't the last line on the
         // page (the last line may actually continue on the next page even if
         // we didn't track it as wrapped).
-        const bool endsParagraph =
-            i < currentPageLineEndsParagraph.size() ? currentPageLineEndsParagraph[i] : true;
+        const bool endsParagraph = i < currentPageLineEndsParagraph.size() ? currentPageLineEndsParagraph[i] : true;
         const bool isLastLineOnPage = (i + 1 == lineCount);
         const bool canJustify = !endsParagraph && !isLastLineOnPage;
 
@@ -861,7 +882,7 @@ void TxtReaderActivity::loadProgress() {
 
   uint64_t savedOffset;
   serialization::readPod(f, savedOffset);
-  if (savedOffset <= fileSize) {
+  if (savedOffset < fileSize) {
     currentOffset = static_cast<size_t>(savedOffset);
     LOG_DBG("TRS", "Loaded progress: offset %zu / %zu (%.0f%%)", currentOffset, fileSize,
             fileSize ? currentOffset * 100.0f / fileSize : 0.0f);
