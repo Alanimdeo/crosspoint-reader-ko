@@ -928,8 +928,8 @@ bool CssParser::loadFromCache() {
     // the largest contiguous block drops below the threshold so page turns
     // (ZIP inflate ~32 KB + grayscale chunks ~8 KB) still have headroom.
     if ((rulesBySelector_.size() & 0x7) == 0 && ESP.getMaxAllocHeap() < MIN_MAX_ALLOC_FOR_INSERT) {
-      LOG_ERR("CSS", "MaxAlloc %u below safe threshold after %zu rules, stopping cache load",
-              ESP.getMaxAllocHeap(), rulesBySelector_.size());
+      LOG_ERR("CSS", "MaxAlloc %u below safe threshold after %zu rules, stopping cache load", ESP.getMaxAllocHeap(),
+              rulesBySelector_.size());
       return true;  // Partial load is better than failing outright.
     }
     rulesBySelector_[selector] = style;
