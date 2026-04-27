@@ -25,7 +25,7 @@ constexpr size_t CHUNK_SIZE = 8 * 1024;  // 8KB chunk for reading
 // the current byte offset plus the layout settings used to produce it, so we
 // can reset to the start if the user changed font/margin/etc. since last read.
 constexpr uint32_t PROGRESS_MAGIC = 0x54585450;  // "TXTP"
-constexpr uint8_t PROGRESS_VERSION = 2;  // v2 adds extraParagraphSpacing + paragraphIndent
+constexpr uint8_t PROGRESS_VERSION = 2;          // v2 adds extraParagraphSpacing + paragraphIndent
 
 // Auto page-turn options in pages-per-minute. Index 0 disables; the rest mirror
 // the EPUB reader's choices so users see consistent values across formats.
@@ -556,8 +556,7 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, bool firstLineIsParagrap
     // a fresh paragraph via firstLineIsParagraphStart).
     const bool sourceLineStartsParagraph = isFirstSourceLineOnPage ? firstLineIsParagraphStart : true;
     // Extra spacing precedes a paragraph that is NOT the page's first.
-    const bool needsExtraSpacingBefore =
-        cachedExtraParagraphSpacing && sourceLineStartsParagraph && !outLines.empty();
+    const bool needsExtraSpacingBefore = cachedExtraParagraphSpacing && sourceLineStartsParagraph && !outLines.empty();
 
     // First wrapped segment of this source line gets paragraph indent if
     // this source line begins a paragraph.
@@ -986,8 +985,15 @@ void TxtReaderActivity::loadProgress() {
   (void)savedParagraphIndent;
   (void)savedCompression;
 
+  // savedOffset is the one field with no value-comparison after the read
+  // (earlier fields are guarded by their own validation, so a truncated read
+  // there harmlessly mismatches and returns). Read it via file.read() and
+  // verify bytesRead so a truncated progress.bin doesn't leave savedOffset as
+  // stack garbage and silently jump the user to a random byte position.
   uint64_t savedOffset;
-  serialization::readPod(f, savedOffset);
+  if (f.read(reinterpret_cast<uint8_t*>(&savedOffset), sizeof(savedOffset)) != sizeof(savedOffset)) {
+    return;
+  }
   if (savedOffset < fileSize) {
     // Snap to a line boundary so the new layout doesn't render a partial
     // wrap segment at the top of the page.
