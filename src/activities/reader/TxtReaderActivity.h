@@ -34,20 +34,33 @@ class TxtReaderActivity final : public Activity {
   // justified mode. False for soft-wrapped continuations which can be spread
   // to fill the viewport.
   std::vector<bool> currentPageLineEndsParagraph;
-  int linesPerPage = 0;
+  // Parallel to currentPageLines: true if this line is the first wrapped
+  // segment of a source-file line (paragraph start). Used by paragraphIndent
+  // and to suppress double extra-spacing on the page's leading line.
+  std::vector<bool> currentPageLineStartsParagraph;
+  int maxLinesPerPage = 0;  // Upper bound; actual lines per page is height-driven.
   int viewportWidth = 0;
+  int viewportHeight = 0;
   bool initialized = false;
+  // True once loadProgress() has run for this open file. Settings changes
+  // recompute the layout but must NOT call loadProgress again — that would
+  // reset currentOffset to 0 if the new settings don't match the saved ones.
+  bool progressLoaded = false;
 
   // Cached settings for invalidating saved progress on layout changes
   int cachedFontId = 0;
   uint8_t cachedScreenMargin = 0;
   uint8_t cachedParagraphAlignment = CrossPointSettings::LEFT_ALIGN;
   uint8_t cachedCharacterWrap = 0;
+  uint8_t cachedExtraParagraphSpacing = 0;
+  uint8_t cachedParagraphIndent = 0;
   float cachedLineCompression = 1.0f;
   int cachedOrientedMarginTop = 0;
   int cachedOrientedMarginRight = 0;
   int cachedOrientedMarginBottom = 0;
   int cachedOrientedMarginLeft = 0;
+  int paragraphIndentPx = 0;
+  int paragraphSpacingPx = 0;
 
   // Reader-menu-driven options (ephemeral; not persisted to global settings)
   bool automaticPageTurnActive = false;
@@ -67,8 +80,13 @@ class TxtReaderActivity final : public Activity {
   void renderStatusBar() const;
 
   void initializeReader();
-  bool loadPageAtOffset(size_t offset, std::vector<std::string>& outLines, std::vector<bool>* outEndsParagraph,
-                        size_t& nextOffset);
+  void recomputeLayout();
+  // Returns true if the byte at offset starts a source line (i.e. previous
+  // byte is '\n' or offset == 0). Used to decide whether the page's leading
+  // line is the start of a new paragraph for indent/spacing purposes.
+  bool isOffsetAtLineStart(size_t offset) const;
+  bool loadPageAtOffset(size_t offset, bool firstLineIsParagraphStart, std::vector<std::string>& outLines,
+                        std::vector<bool>* outEndsParagraph, std::vector<bool>* outStartsParagraph, size_t& nextOffset);
   size_t snapToLineStart(size_t offset) const;
   size_t findBackwardPageStart(size_t endOffset) const;
   void saveProgress() const;
