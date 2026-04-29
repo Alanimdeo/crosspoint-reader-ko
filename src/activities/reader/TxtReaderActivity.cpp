@@ -602,7 +602,10 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, bool firstLineIsParagrap
     bool isFirstSegmentOfSourceLine = true;
     bool extraSpacingApplied = false;
 
-    // Word wrap if needed - use binary search for performance with SD fonts
+    // Word wrap if needed - use binary search for performance with SD fonts.
+    // The size guard is a defensive belt-and-braces check; tryAddLine() also
+    // gates on capacity and will trigger goto pageFull when full.
+    // cppcheck-suppress knownConditionTrueFalse
     while (!line.empty() && static_cast<int>(outLines.size()) < maxLinesPerPage) {
       const int effectiveWidth = isFirstSegmentOfSourceLine ? viewportWidth - firstSegmentIndent : viewportWidth;
       // Use binary search to find break position (much faster than linear search)
