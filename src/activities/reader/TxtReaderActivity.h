@@ -119,4 +119,7 @@ class TxtReaderActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
   bool isReaderActivity() const override { return true; }
+  // Prevent auto-sleep while auto page-turn is running so long unattended
+  // reads don't get cut off by the global inactivity timer.
+  bool preventAutoSleep() override { return automaticPageTurnActive; }
 };
