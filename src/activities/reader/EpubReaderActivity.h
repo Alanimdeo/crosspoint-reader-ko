@@ -5,6 +5,7 @@
 
 #include "EpubReaderMenuActivity.h"
 #include "activities/Activity.h"
+#include "util/ReadingTimer.h"
 
 class EpubReaderActivity final : public Activity {
   std::shared_ptr<Epub> epub;
@@ -28,6 +29,10 @@ class EpubReaderActivity final : public Activity {
   bool pendingScreenshot = false;
   bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
   bool automaticPageTurnActive = false;
+
+  // Per-book reading-time accumulator. Loaded in onEnter, ticked in loop,
+  // saved on mid-cadence and onExit. See util/ReadingTimer.h for semantics.
+  ReadingTimer readingTimer;
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;

@@ -15,6 +15,7 @@
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "TxtReaderMenuActivity.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ScreenshotUtil.h"
@@ -139,12 +140,18 @@ void TxtReaderActivity::onEnter() {
   APP_STATE.saveToFile();
   RECENT_BOOKS.addBook(filePath, fileName, "", "");
 
+  // Begin per-book reading time accumulation.
+  readingTimer.start(txt->getCachePath());
+
   // Trigger first update
   requestUpdate();
 }
 
 void TxtReaderActivity::onExit() {
   Activity::onExit();
+
+  // Persist accumulated session time before tearing down the file.
+  readingTimer.stop();
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -166,12 +173,16 @@ void TxtReaderActivity::loop() {
     return;
   }
 
+  // Accumulate reading time. See util/ReadingTimer.h for idle/save semantics.
+  readingTimer.tick();
+
   // Auto page turn handling — fire pageTurn(true) on the configured cadence
   // and let any user input cancel it.
   if (automaticPageTurnActive) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
         mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       automaticPageTurnActive = false;
+      readingTimer.notifyInput();
       requestUpdate();
       return;
     }
@@ -180,6 +191,9 @@ void TxtReaderActivity::loop() {
       return;
     }
     if ((millis() - lastPageTurnTime) >= pageTurnDuration) {
+      // Auto-turn counts as activity so 5-min idle pause doesn't suspend
+      // unattended hands-free reading on the user's chosen cadence.
+      readingTimer.notifyInput();
       pageTurn(true);
       return;
     }
@@ -187,26 +201,29 @@ void TxtReaderActivity::loop() {
 
   // Open the reader menu on Confirm release.
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    readingTimer.notifyInput();
     const float progress = fileSize > 0 ? (currentOffset * 100.0f / fileSize) : 0.0f;
     const int bookProgressPercent = clampPercent(static_cast<int>(progress + 0.5f));
-    startActivityForResult(
-        std::make_unique<TxtReaderMenuActivity>(renderer, mappedInput, txt ? txt->getTitle() : std::string(),
-                                                estimatedCurrentPage(), estimatedTotalPages(), bookProgressPercent,
-                                                SETTINGS.orientation, currentPageTurnOption, currentPageJumpOption),
-        [this](const ActivityResult& result) {
-          const auto& menu = std::get<MenuResult>(result.data);
-          // Apply orientation, auto-turn, and page-jump even when cancelled —
-          // the user cycled them inside the menu and expects them to stick.
-          applyOrientation(menu.orientation);
-          toggleAutoPageTurn(menu.pageTurnOption);
-          currentPageJumpOption = menu.pageJumpOption;
-          skipNextButtonCheck = true;
-          if (!result.isCancelled) {
-            onReaderMenuConfirm(static_cast<TxtReaderMenuActivity::MenuAction>(menu.action));
-          } else {
-            requestUpdate();
-          }
-        });
+    startActivityForResult(std::make_unique<TxtReaderMenuActivity>(
+                               renderer, mappedInput, txt ? txt->getTitle() : std::string(), estimatedCurrentPage(),
+                               estimatedTotalPages(), bookProgressPercent, SETTINGS.orientation, currentPageTurnOption,
+                               currentPageJumpOption, readingTimer.totalSeconds()),
+                           [this](const ActivityResult& result) {
+                             const auto& menu = std::get<MenuResult>(result.data);
+                             // Apply orientation, auto-turn, and page-jump even when cancelled —
+                             // the user cycled them inside the menu and expects them to stick.
+                             applyOrientation(menu.orientation);
+                             toggleAutoPageTurn(menu.pageTurnOption);
+                             currentPageJumpOption = menu.pageJumpOption;
+                             skipNextButtonCheck = true;
+                             // Returning from the menu counts as input so idle doesn't snap on.
+                             readingTimer.notifyInput();
+                             if (!result.isCancelled) {
+                               onReaderMenuConfirm(static_cast<TxtReaderMenuActivity::MenuAction>(menu.action));
+                             } else {
+                               requestUpdate();
+                             }
+                           });
     return;
   }
 
@@ -219,6 +236,7 @@ void TxtReaderActivity::loop() {
   // Short press BACK goes directly to home
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) &&
       mappedInput.getHeldTime() < ReaderUtils::GO_HOME_MS) {
+    readingTimer.notifyInput();
     onGoHome();
     return;
   }
@@ -233,6 +251,7 @@ void TxtReaderActivity::loop() {
     const bool nextReleased = mappedInput.wasReleased(MappedInputManager::Button::PageForward) ||
                               mappedInput.wasReleased(MappedInputManager::Button::Right);
     if (prevReleased || nextReleased) {
+      readingTimer.notifyInput();
       const unsigned long held = mappedInput.getHeldTime();
       const int step = (held >= PAGE_JUMP_HOLD_MS) ? PAGE_JUMP_STEPS[currentPageJumpOption] : 1;
       jumpPages(nextReleased ? step : -step);
@@ -242,6 +261,7 @@ void TxtReaderActivity::loop() {
     // role even while we're intercepting nav-button presses.
     if (SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::PAGE_TURN &&
         mappedInput.wasReleased(MappedInputManager::Button::Power)) {
+      readingTimer.notifyInput();
       pageTurn(true);
     }
     return;
@@ -253,6 +273,7 @@ void TxtReaderActivity::loop() {
     return;
   }
 
+  readingTimer.notifyInput();
   pageTurn(nextTriggered);
 }
 
@@ -407,6 +428,20 @@ void TxtReaderActivity::onReaderMenuConfirm(const TxtReaderMenuActivity::MenuAct
     case TxtReaderMenuActivity::MenuAction::GO_HOME: {
       onGoHome();
       return;
+    }
+    case TxtReaderMenuActivity::MenuAction::RESET_READING_TIMER: {
+      // Two-step destructive action: prompt before zeroing the cumulative time.
+      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET_READING_TIMER),
+                                                                    tr(STR_RESET_READING_TIMER_PROMPT)),
+                             [this](const ActivityResult& result) {
+                               skipNextButtonCheck = true;
+                               readingTimer.notifyInput();
+                               if (!result.isCancelled) {
+                                 readingTimer.reset();
+                               }
+                               requestUpdate();
+                             });
+      break;
     }
     case TxtReaderMenuActivity::MenuAction::AUTO_PAGE_TURN:
     case TxtReaderMenuActivity::MenuAction::PAGE_JUMP_STEP:

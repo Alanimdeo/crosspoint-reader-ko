@@ -7,6 +7,7 @@
 #include "CrossPointSettings.h"
 #include "TxtReaderMenuActivity.h"
 #include "activities/Activity.h"
+#include "util/ReadingTimer.h"
 
 class TxtReaderActivity final : public Activity {
   std::unique_ptr<Txt> txt;
@@ -75,6 +76,9 @@ class TxtReaderActivity final : public Activity {
   // Suppress one frame of input after returning from a sub-activity so the
   // release event that closed the menu doesn't immediately retrigger here.
   bool skipNextButtonCheck = false;
+
+  // Per-book reading-time accumulator. See util/ReadingTimer.h.
+  ReadingTimer readingTimer;
 
   void renderPage();
   void renderStatusBar() const;

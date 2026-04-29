@@ -21,6 +21,7 @@
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ScreenshotUtil.h"
@@ -88,12 +89,18 @@ void EpubReaderActivity::onEnter() {
   APP_STATE.saveToFile();
   RECENT_BOOKS.addBook(epub->getPath(), epub->getTitle(), epub->getAuthor(), epub->getThumbBmpPath());
 
+  // Begin per-book reading time accumulation. Cache dir was just ensured above.
+  readingTimer.start(epub->getCachePath());
+
   // Trigger first update
   requestUpdate();
 }
 
 void EpubReaderActivity::onExit() {
   Activity::onExit();
+
+  // Persist accumulated session time before tearing down the book.
+  readingTimer.stop();
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
@@ -111,10 +118,16 @@ void EpubReaderActivity::loop() {
     return;
   }
 
+  // Accumulate elapsed reading time. Sub-activity gaps are absorbed by the
+  // timer's per-tick clamp; idle pause kicks in after IDLE_TIMEOUT_MS without
+  // a notifyInput() call.
+  readingTimer.tick();
+
   if (automaticPageTurnActive) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
         mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       automaticPageTurnActive = false;
+      readingTimer.notifyInput();
       // updates chapter title space to indicate page turn disabled
       requestUpdate();
       return;
@@ -132,6 +145,9 @@ void EpubReaderActivity::loop() {
     }
 
     if ((millis() - lastPageTurnTime) >= pageTurnDuration) {
+      // Auto-turn counts as activity so the 5-min idle pause doesn't cut off
+      // long unattended reads on the user's chosen cadence.
+      readingTimer.notifyInput();
       pageTurn(true);
       return;
     }
@@ -139,6 +155,7 @@ void EpubReaderActivity::loop() {
 
   // Enter reader menu activity.
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    readingTimer.notifyInput();
     const int currentPage = section ? section->currentPage + 1 : 0;
     const int totalPages = section ? section->pageCount : 0;
     float bookProgress = 0.0f;
@@ -149,12 +166,15 @@ void EpubReaderActivity::loop() {
     const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
     startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
                                renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
-                               SETTINGS.orientation, !currentPageFootnotes.empty()),
+                               SETTINGS.orientation, !currentPageFootnotes.empty(), readingTimer.totalSeconds()),
                            [this](const ActivityResult& result) {
                              // Always apply orientation change even if the menu was cancelled
                              const auto& menu = std::get<MenuResult>(result.data);
                              applyOrientation(menu.orientation);
                              toggleAutoPageTurn(menu.pageTurnOption);
+                             // Returning from the menu counts as input — keeps the
+                             // idle pause from triggering immediately on resume.
+                             readingTimer.notifyInput();
                              if (!result.isCancelled) {
                                onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
                              }
@@ -170,6 +190,7 @@ void EpubReaderActivity::loop() {
   // Short press BACK goes directly to home (or restores position if viewing footnote)
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) &&
       mappedInput.getHeldTime() < ReaderUtils::GO_HOME_MS) {
+    readingTimer.notifyInput();
     if (footnoteDepth > 0) {
       restoreSavedPosition();
       return;
@@ -182,6 +203,7 @@ void EpubReaderActivity::loop() {
   if (!prevTriggered && !nextTriggered) {
     return;
   }
+  readingTimer.notifyInput();
 
   // At end of the book, forward button goes home and back button returns to last page
   if (currentSpineIndex > 0 && currentSpineIndex >= epub->getSpineItemsCount()) {
@@ -410,6 +432,19 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
               }
             });
       }
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::RESET_READING_TIMER: {
+      // Two-step destructive action: prompt before zeroing the cumulative time.
+      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET_READING_TIMER),
+                                                                    tr(STR_RESET_READING_TIMER_PROMPT)),
+                             [this](const ActivityResult& result) {
+                               readingTimer.notifyInput();
+                               if (!result.isCancelled) {
+                                 readingTimer.reset();
+                               }
+                               requestUpdate();
+                             });
       break;
     }
   }

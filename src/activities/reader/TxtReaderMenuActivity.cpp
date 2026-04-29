@@ -3,14 +3,18 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include <cstdio>
+
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "util/ReadingStats.h"
 
 TxtReaderMenuActivity::TxtReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                              const std::string& title, const int currentPage, const int totalPages,
                                              const int bookProgressPercent, const uint8_t currentOrientation,
-                                             const uint8_t currentPageTurnOption, const uint8_t currentPageJumpOption)
+                                             const uint8_t currentPageTurnOption, const uint8_t currentPageJumpOption,
+                                             const uint32_t totalReadingSeconds)
     : Activity("TxtReaderMenu", renderer, mappedInput),
       menuItems(buildMenuItems()),
       title(title),
@@ -19,16 +23,18 @@ TxtReaderMenuActivity::TxtReaderMenuActivity(GfxRenderer& renderer, MappedInputM
       selectedPageJumpOption(currentPageJumpOption),
       currentPage(currentPage),
       totalPages(totalPages),
-      bookProgressPercent(bookProgressPercent) {}
+      bookProgressPercent(bookProgressPercent),
+      totalReadingSeconds(totalReadingSeconds) {}
 
 std::vector<TxtReaderMenuActivity::MenuItem> TxtReaderMenuActivity::buildMenuItems() {
   std::vector<MenuItem> items;
-  items.reserve(6);
+  items.reserve(7);
   items.push_back({MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION});
   items.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN});
   items.push_back({MenuAction::PAGE_JUMP_STEP, StrId::STR_PAGE_JUMP_STEP});
   items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
   items.push_back({MenuAction::SCREENSHOT, StrId::STR_SCREENSHOT_BUTTON});
+  items.push_back({MenuAction::RESET_READING_TIMER, StrId::STR_RESET_READING_TIMER});
   items.push_back({MenuAction::GO_HOME, StrId::STR_GO_HOME_BUTTON});
   return items;
 }
@@ -115,6 +121,9 @@ void TxtReaderMenuActivity::render(RenderLock&&) {
         std::to_string(currentPage) + "/" + std::to_string(totalPages) + std::string(tr(STR_PAGES_SEPARATOR));
   }
   progressLine += std::string(tr(STR_BOOK_PREFIX)) + std::to_string(bookProgressPercent) + "%";
+  char timeBuf[12];
+  ReadingStats::format(totalReadingSeconds, timeBuf, sizeof(timeBuf));
+  progressLine += "  |  " + std::string(tr(STR_READING_TIME)) + ": " + timeBuf;
   const int progressX = contentX + (contentWidth - renderer.getTextWidth(UI_10_FONT_ID, progressLine.c_str())) / 2;
   renderer.drawText(UI_10_FONT_ID, progressX, 45 + contentY, progressLine.c_str());
 

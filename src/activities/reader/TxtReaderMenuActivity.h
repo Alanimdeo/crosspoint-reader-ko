@@ -19,11 +19,13 @@ class TxtReaderMenuActivity final : public Activity {
     ROTATE_SCREEN,
     SCREENSHOT,
     GO_HOME,
+    RESET_READING_TIMER,
   };
 
   explicit TxtReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                  int currentPage, int totalPages, int bookProgressPercent, uint8_t currentOrientation,
-                                 uint8_t currentPageTurnOption, uint8_t currentPageJumpOption);
+                                 uint8_t currentPageTurnOption, uint8_t currentPageJumpOption,
+                                 uint32_t totalReadingSeconds);
 
   void onEnter() override;
   void onExit() override;
@@ -59,4 +61,5 @@ class TxtReaderMenuActivity final : public Activity {
   int currentPage = 0;
   int totalPages = 0;
   int bookProgressPercent = 0;
+  uint32_t totalReadingSeconds = 0;
 };
