@@ -1,0 +1,25 @@
+name: Close inactive issues
+
+on:
+  schedule:
+    - cron: "30 1 * * *"
+  workflow_dispatch:
+
+jobs:
+  close-issues:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/stale@v10
+        with:
+          days-before-issue-stale: 30
+          days-before-issue-close: 14
+          stale-issue-label: "stale"
+          stale-issue-message: "이 이슈는 30일 동안 활동이 없어 stale로 표시되었습니다. 추가 정보가 있다면 댓글을 남겨주세요. 그렇지 않으면 14일 후 자동으로 닫힙니다."
+          close-issue-message: "이 이슈는 stale로 표시된 후 14일 동안 활동이 없어 자동으로 닫혔습니다."
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          exempt-issue-labels: "pinned,security,help wanted,good first issue"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
