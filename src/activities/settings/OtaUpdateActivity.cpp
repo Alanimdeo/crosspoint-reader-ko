@@ -132,7 +132,7 @@ void OtaUpdateActivity::render(RenderLock&&) {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state == FINISHED) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_COMPLETE), true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, top + height + metrics.verticalSpacing, tr(STR_POWER_ON_HINT));
+    renderer.drawCenteredText(UI_10_FONT_ID, top + height + metrics.verticalSpacing, tr(STR_RESTARTING_HINT));
   }
 
   renderer.displayBuffer();
@@ -169,7 +169,9 @@ void OtaUpdateActivity::loop() {
         RenderLock lock(*this);
         state = FINISHED;
       }
-      requestUpdate();
+      requestUpdateAndWait();
+      delay(1500);
+      ESP.restart();
     }
 
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {

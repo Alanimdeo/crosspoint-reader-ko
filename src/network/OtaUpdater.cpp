@@ -1,10 +1,18 @@
 #include "OtaUpdater.h"
 
+#include <Arduino.h>
 #include <ArduinoJson.h>
 #include <Logging.h>
+#include <esp_flash.h>
+#include <esp_ota_ops.h>
+#include <esp_partition.h>
+#include <spi_flash_mmap.h>
 
+#include <algorithm>
+#include <memory>
+
+#include "OtaBootSwitch.h"
 #include "esp_http_client.h"
-#include "esp_https_ota.h"
 #include "esp_wifi.h"
 
 namespace {
@@ -284,18 +292,22 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     return UPDATE_OLDER_ERROR;
   }
 
-  esp_https_ota_handle_t ota_handle = NULL;
-  esp_err_t esp_err;
-  /* Signal for OtaUpdateActivity */
+  // Mirror the SD-update path: raw HTTP download → raw partition write →
+  // direct otadata switch. Skip esp_https_ota_* entirely so the running
+  // ESP-IDF's bogus esp_image_verify (efuse-blk-rev rejection) never runs.
   render = false;
+
+  const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
+  if (!dest) {
+    LOG_ERR("OTA", "esp_ota_get_next_update_partition returned null");
+    return INTERNAL_UPDATE_ERROR;
+  }
+  LOG_INF("OTA", "dest: %s @0x%x size=%u", dest->label, static_cast<unsigned>(dest->address),
+          static_cast<unsigned>(dest->size));
 
   esp_http_client_config_t client_config = {
       .url = otaUrl.c_str(),
       .timeout_ms = 15000,
-      /* Default HTTP client buffer size 512 byte only
-       * not sufficent to handle URL redirection cases or
-       * parsing of large HTTP headers.
-       */
       .buffer_size = 8192,
       .buffer_size_tx = 8192,
       .skip_cert_common_name_check = true,
@@ -303,61 +315,117 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
       .keep_alive_enable = true,
   };
 
-  esp_https_ota_config_t ota_config = {
-      .http_config = &client_config,
-      .http_client_init_cb = http_client_set_header_cb,
-  };
-
-  /* For better timing and connectivity, we disable power saving for WiFi */
-  esp_wifi_set_ps(WIFI_PS_NONE);
-
-  esp_err = esp_https_ota_begin(&ota_config, &ota_handle);
-  if (esp_err != ESP_OK) {
-    LOG_DBG("OTA", "HTTP OTA Begin Failed: %s", esp_err_to_name(esp_err));
+  esp_http_client_handle_t client = esp_http_client_init(&client_config);
+  if (!client) {
+    LOG_ERR("OTA", "esp_http_client_init failed");
     return INTERNAL_UPDATE_ERROR;
   }
+  esp_http_client_set_header(client, "User-Agent", "CrossPoint-ESP32-" CROSSPOINT_VERSION);
 
-  uint32_t lastLogMs = 0;
-  do {
-    esp_err = esp_https_ota_perform(ota_handle);
-    processedSize = esp_https_ota_get_image_len_read(ota_handle);
-    render = true;
-    /*
-     * Drive the UI directly; the caller's loop() is blocked inside this call
-     * so the `render` flag alone would never reach the render task.
-     */
-    if (onProgress) onProgress(ctx);
+  // Disable power saving for stable throughput.
+  esp_wifi_set_ps(WIFI_PS_NONE);
+  auto restorePs = [&]() { esp_wifi_set_ps(WIFI_PS_MIN_MODEM); };
 
-    /* Heartbeat log every ~2s so serial shows download is alive during slow
-     * TLS handshake / redirect phases (progress counter stays at 0 until the
-     * HTTP body starts flowing). */
-    const uint32_t now = millis();
-    if (now - lastLogMs > 2000) {
-      LOG_DBG("OTA", "perform: read=%u / %u", static_cast<unsigned>(processedSize), static_cast<unsigned>(totalSize));
-      lastLogMs = now;
-    }
-
-    delay(50);
-  } while (esp_err == ESP_ERR_HTTPS_OTA_IN_PROGRESS);
-
-  /* Return back to default power saving for WiFi in case of failing */
-  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
-
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_https_ota_perform Failed: %s", esp_err_to_name(esp_err));
-    esp_https_ota_finish(ota_handle);
+  esp_err_t err = esp_http_client_open(client, 0);
+  if (err != ESP_OK) {
+    LOG_ERR("OTA", "http_client_open failed: %s", esp_err_to_name(err));
+    esp_http_client_cleanup(client);
+    restorePs();
     return HTTP_ERROR;
   }
 
-  if (!esp_https_ota_is_complete_data_received(ota_handle)) {
-    LOG_ERR("OTA", "esp_https_ota_is_complete_data_received Failed: %s", esp_err_to_name(esp_err));
-    esp_https_ota_finish(ota_handle);
+  // Read response headers (returns body Content-Length, may be -1 for chunked).
+  int contentLen = esp_http_client_fetch_headers(client);
+  const int status = esp_http_client_get_status_code(client);
+  if (status / 100 != 2) {
+    LOG_ERR("OTA", "HTTP status %d", status);
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    restorePs();
+    return HTTP_ERROR;
+  }
+  if (contentLen <= 0) contentLen = static_cast<int>(otaSize);  // fallback to release-asset size
+  if (contentLen <= 0 || static_cast<size_t>(contentLen) > dest->size) {
+    LOG_ERR("OTA", "implausible content length: %d (partition=%u)", contentLen, static_cast<unsigned>(dest->size));
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    restorePs();
+    return HTTP_ERROR;
+  }
+  totalSize = static_cast<size_t>(contentLen);
+  processedSize = 0;
+  render = true;
+  if (onProgress) onProgress(ctx);
+
+  constexpr size_t SEC = SPI_FLASH_SEC_SIZE;  // 4 KiB
+  constexpr size_t BLK = 64 * 1024;           // 64 KiB block-erase granularity
+  constexpr size_t CHUNK = 4096;
+  auto buffer = std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[CHUNK]);
+  if (!buffer) {
+    LOG_ERR("OTA", "OOM allocating chunk buffer");
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    restorePs();
+    return OOM_ERROR;
+  }
+
+  size_t pos = 0;
+  size_t erasedUpto = 0;
+  uint32_t lastLogMs = 0;
+  while (pos < totalSize) {
+    if (pos >= erasedUpto) {
+      size_t eraseLen = std::min<size_t>(BLK, dest->size - pos);
+      eraseLen = (eraseLen + SEC - 1) & ~(SEC - 1);
+      eraseLen = std::min<size_t>(eraseLen, dest->size - pos);
+      if (esp_partition_erase_range(dest, pos, eraseLen) != ESP_OK) {
+        LOG_ERR("OTA", "erase_range failed @%u (len=%u)", static_cast<unsigned>(pos), static_cast<unsigned>(eraseLen));
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+        restorePs();
+        return INTERNAL_UPDATE_ERROR;
+      }
+      erasedUpto = pos + eraseLen;
+    }
+
+    const size_t want = std::min<size_t>(CHUNK, totalSize - pos);
+    const int got = esp_http_client_read(client, reinterpret_cast<char*>(buffer.get()), want);
+    if (got <= 0) {
+      LOG_ERR("OTA", "http_client_read failed @%u (got=%d)", static_cast<unsigned>(pos), got);
+      esp_http_client_close(client);
+      esp_http_client_cleanup(client);
+      restorePs();
+      return HTTP_ERROR;
+    }
+    if (esp_partition_write(dest, pos, buffer.get(), static_cast<size_t>(got)) != ESP_OK) {
+      LOG_ERR("OTA", "partition_write failed @%u", static_cast<unsigned>(pos));
+      esp_http_client_close(client);
+      esp_http_client_cleanup(client);
+      restorePs();
+      return INTERNAL_UPDATE_ERROR;
+    }
+    pos += static_cast<size_t>(got);
+    processedSize = pos;
+    render = true;
+    if (onProgress) onProgress(ctx);
+
+    const uint32_t now = millis();
+    if (now - lastLogMs > 2000) {
+      LOG_DBG("OTA", "downloaded=%u / %u", static_cast<unsigned>(pos), static_cast<unsigned>(totalSize));
+      lastLogMs = now;
+    }
+  }
+
+  esp_http_client_close(client);
+  esp_http_client_cleanup(client);
+  restorePs();
+
+  if (pos != totalSize) {
+    LOG_ERR("OTA", "incomplete download: %u / %u", static_cast<unsigned>(pos), static_cast<unsigned>(totalSize));
     return INTERNAL_UPDATE_ERROR;
   }
 
-  esp_err = esp_https_ota_finish(ota_handle);
-  if (esp_err != ESP_OK) {
-    LOG_ERR("OTA", "esp_https_ota_finish Failed: %s", esp_err_to_name(esp_err));
+  if (!ota_boot::switchTo(dest)) {
+    LOG_ERR("OTA", "manual otadata switch failed");
     return INTERNAL_UPDATE_ERROR;
   }
 
