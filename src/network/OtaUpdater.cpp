@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <HalStorage.h>
 #include <Logging.h>
 #include <esp_flash.h>
 #include <esp_ota_ops.h>
@@ -11,7 +12,7 @@
 #include <algorithm>
 #include <memory>
 
-#include "OtaBootSwitch.h"
+#include "FirmwareFlasher.h"
 #include "esp_http_client.h"
 #include "esp_wifi.h"
 
@@ -287,29 +288,109 @@ bool OtaUpdater::isUpdateNewerKO() const {
   return updateKo > currentKo;
 }
 
+namespace {
+constexpr const char* kOtaSdPath = "/.crosspoint/ota_firmware.bin";
+
+// Stash the activity-side progress callback so the firmware-flasher's free
+// progress callback can fan back into it (we need a void* ctx hop).
+struct FlashCtx {
+  OtaUpdater* updater;
+  OtaUpdater::ProgressCallback onProgress;
+  void* userCtx;
+};
+
+// Per-call download state shared with the event handler.
+struct DownloadCtx {
+  OtaUpdater* updater;
+  HalFile* sdFile;
+  size_t written;
+  bool writeFailed;
+  OtaUpdater::ProgressCallback onProgress;
+  void* userCtx;
+};
+
+esp_err_t download_event_handler(esp_http_client_event_t* evt) {
+  auto* dctx = static_cast<DownloadCtx*>(evt->user_data);
+  switch (evt->event_id) {
+    case HTTP_EVENT_ON_HEADER:
+      // capture Content-Length when the server provides it
+      if (evt->header_key && evt->header_value && strcasecmp(evt->header_key, "Content-Length") == 0) {
+        const int len = atoi(evt->header_value);
+        if (len > 0) dctx->updater->setExpectedSize(static_cast<size_t>(len));
+      }
+      break;
+    case HTTP_EVENT_ON_DATA:
+      if (dctx->writeFailed) return ESP_OK;
+      if (evt->data_len > 0 && dctx->sdFile && *dctx->sdFile) {
+        const size_t want = static_cast<size_t>(evt->data_len);
+        const size_t wrote = dctx->sdFile->write(static_cast<const uint8_t*>(evt->data), want);
+        if (wrote != want) {
+          LOG_ERR("OTA", "SD write short @%u (got=%u want=%u)", static_cast<unsigned>(dctx->written),
+                  static_cast<unsigned>(wrote), static_cast<unsigned>(want));
+          dctx->writeFailed = true;
+          dctx->updater->setLastError("sd_write");
+          return ESP_FAIL;
+        }
+        dctx->written += want;
+        dctx->updater->setProcessed(dctx->written);
+        if (dctx->onProgress) dctx->onProgress(dctx->userCtx);
+      }
+      break;
+    default:
+      break;
+  }
+  return ESP_OK;
+}
+}  // namespace
+
+void OtaUpdater::setLastError(const std::string& err) { lastError = err; }
+void OtaUpdater::setExpectedSize(size_t s) {
+  totalSize = s;
+  render = true;
+}
+void OtaUpdater::setProcessed(size_t s) {
+  processedSize = s;
+  render = true;
+}
+
 OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgress, void* ctx) {
+  lastError.clear();
   if (!isUpdateNewerKO()) {
+    lastError = "not_newer";
     return UPDATE_OLDER_ERROR;
   }
 
-  // Mirror the SD-update path: raw HTTP download → raw partition write →
-  // direct otadata switch. Skip esp_https_ota_* entirely so the running
-  // ESP-IDF's bogus esp_image_verify (efuse-blk-rev rejection) never runs.
-  render = false;
+  // Two-phase: (1) download the patched firmware.bin to SD via
+  // esp_http_client_perform (same proven pattern as checkForUpdate uses) +
+  // event handler that streams chunks straight to a file on the SD card,
+  // (2) flash that file using firmware_flash::flashFromSdPath. Skipping
+  // esp_https_ota_* avoids the running ESP-IDF's bogus esp_image_verify
+  // efuse-blk-rev rejection on X4 silicon. The cached SD file also lets
+  // the user retry the SD update flow if anything dies mid-flash.
+  phase = Phase::Downloading;
+  totalSize = otaSize;  // GitHub release asset size — pre-populated from checkForUpdate
+  processedSize = 0;
+  render = true;
+  if (onProgress) onProgress(ctx);
 
-  const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
-  if (!dest) {
-    LOG_ERR("OTA", "esp_ota_get_next_update_partition returned null");
+  Storage.mkdir("/.crosspoint", true);
+
+  HalFile sdFile;
+  if (!Storage.openFileForWrite("OTA", kOtaSdPath, sdFile) || !sdFile) {
+    LOG_ERR("OTA", "open SD cache for write failed: %s", kOtaSdPath);
+    lastError = "sd_open";
     return INTERNAL_UPDATE_ERROR;
   }
-  LOG_INF("OTA", "dest: %s @0x%x size=%u", dest->label, static_cast<unsigned>(dest->address),
-          static_cast<unsigned>(dest->size));
+
+  DownloadCtx dctx{this, &sdFile, 0, false, onProgress, ctx};
 
   esp_http_client_config_t client_config = {
       .url = otaUrl.c_str(),
-      .timeout_ms = 15000,
+      .timeout_ms = 30000,
+      .event_handler = download_event_handler,
       .buffer_size = 8192,
       .buffer_size_tx = 8192,
+      .user_data = &dctx,
       .skip_cert_common_name_check = true,
       .crt_bundle_attach = esp_crt_bundle_attach,
       .keep_alive_enable = true,
@@ -318,114 +399,65 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
   esp_http_client_handle_t client = esp_http_client_init(&client_config);
   if (!client) {
     LOG_ERR("OTA", "esp_http_client_init failed");
+    sdFile.close();
+    lastError = "http_init";
     return INTERNAL_UPDATE_ERROR;
   }
   esp_http_client_set_header(client, "User-Agent", "CrossPoint-ESP32-" CROSSPOINT_VERSION);
 
-  // Disable power saving for stable throughput.
   esp_wifi_set_ps(WIFI_PS_NONE);
-  auto restorePs = [&]() { esp_wifi_set_ps(WIFI_PS_MIN_MODEM); };
 
-  esp_err_t err = esp_http_client_open(client, 0);
-  if (err != ESP_OK) {
-    LOG_ERR("OTA", "http_client_open failed: %s", esp_err_to_name(err));
-    esp_http_client_cleanup(client);
-    restorePs();
-    return HTTP_ERROR;
-  }
-
-  // Read response headers (returns body Content-Length, may be -1 for chunked).
-  int contentLen = esp_http_client_fetch_headers(client);
+  esp_err_t err = esp_http_client_perform(client);
   const int status = esp_http_client_get_status_code(client);
+  esp_http_client_cleanup(client);
+  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+  sdFile.close();
+
+  if (err != ESP_OK) {
+    LOG_ERR("OTA", "http perform failed: %s (status=%d)", esp_err_to_name(err), status);
+    char buf[48];
+    snprintf(buf, sizeof(buf), "http_perform:%s", esp_err_to_name(err));
+    lastError = buf;
+    return HTTP_ERROR;
+  }
   if (status / 100 != 2) {
-    LOG_ERR("OTA", "HTTP status %d", status);
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-    restorePs();
+    LOG_ERR("OTA", "http status %d", status);
+    char buf[24];
+    snprintf(buf, sizeof(buf), "http_status:%d", status);
+    lastError = buf;
     return HTTP_ERROR;
   }
-  if (contentLen <= 0) contentLen = static_cast<int>(otaSize);  // fallback to release-asset size
-  if (contentLen <= 0 || static_cast<size_t>(contentLen) > dest->size) {
-    LOG_ERR("OTA", "implausible content length: %d (partition=%u)", contentLen, static_cast<unsigned>(dest->size));
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-    restorePs();
+  if (dctx.writeFailed) {
+    return INTERNAL_UPDATE_ERROR;  // lastError already set
+  }
+  if (dctx.written == 0) {
+    LOG_ERR("OTA", "no body bytes received");
+    lastError = "empty_body";
     return HTTP_ERROR;
   }
-  totalSize = static_cast<size_t>(contentLen);
+  LOG_INF("OTA", "download complete: %u bytes -> %s", static_cast<unsigned>(dctx.written), kOtaSdPath);
+
+  // Phase 2: flash from SD using the shared firmware flasher.
+  phase = Phase::Flashing;
+  totalSize = dctx.written;
   processedSize = 0;
   render = true;
   if (onProgress) onProgress(ctx);
 
-  constexpr size_t SEC = SPI_FLASH_SEC_SIZE;  // 4 KiB
-  constexpr size_t BLK = 64 * 1024;           // 64 KiB block-erase granularity
-  constexpr size_t CHUNK = 4096;
-  auto buffer = std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[CHUNK]);
-  if (!buffer) {
-    LOG_ERR("OTA", "OOM allocating chunk buffer");
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-    restorePs();
-    return OOM_ERROR;
-  }
+  FlashCtx flashCtx{this, onProgress, ctx};
+  auto progressCb = +[](size_t written, size_t total, void* fctx) {
+    auto* fc = static_cast<FlashCtx*>(fctx);
+    fc->updater->setProcessed(written);
+    fc->updater->setExpectedSize(total);
+    if (fc->onProgress) fc->onProgress(fc->userCtx);
+  };
 
-  size_t pos = 0;
-  size_t erasedUpto = 0;
-  uint32_t lastLogMs = 0;
-  while (pos < totalSize) {
-    if (pos >= erasedUpto) {
-      size_t eraseLen = std::min<size_t>(BLK, dest->size - pos);
-      eraseLen = (eraseLen + SEC - 1) & ~(SEC - 1);
-      eraseLen = std::min<size_t>(eraseLen, dest->size - pos);
-      if (esp_partition_erase_range(dest, pos, eraseLen) != ESP_OK) {
-        LOG_ERR("OTA", "erase_range failed @%u (len=%u)", static_cast<unsigned>(pos), static_cast<unsigned>(eraseLen));
-        esp_http_client_close(client);
-        esp_http_client_cleanup(client);
-        restorePs();
-        return INTERNAL_UPDATE_ERROR;
-      }
-      erasedUpto = pos + eraseLen;
-    }
-
-    const size_t want = std::min<size_t>(CHUNK, totalSize - pos);
-    const int got = esp_http_client_read(client, reinterpret_cast<char*>(buffer.get()), want);
-    if (got <= 0) {
-      LOG_ERR("OTA", "http_client_read failed @%u (got=%d)", static_cast<unsigned>(pos), got);
-      esp_http_client_close(client);
-      esp_http_client_cleanup(client);
-      restorePs();
-      return HTTP_ERROR;
-    }
-    if (esp_partition_write(dest, pos, buffer.get(), static_cast<size_t>(got)) != ESP_OK) {
-      LOG_ERR("OTA", "partition_write failed @%u", static_cast<unsigned>(pos));
-      esp_http_client_close(client);
-      esp_http_client_cleanup(client);
-      restorePs();
-      return INTERNAL_UPDATE_ERROR;
-    }
-    pos += static_cast<size_t>(got);
-    processedSize = pos;
-    render = true;
-    if (onProgress) onProgress(ctx);
-
-    const uint32_t now = millis();
-    if (now - lastLogMs > 2000) {
-      LOG_DBG("OTA", "downloaded=%u / %u", static_cast<unsigned>(pos), static_cast<unsigned>(totalSize));
-      lastLogMs = now;
-    }
-  }
-
-  esp_http_client_close(client);
-  esp_http_client_cleanup(client);
-  restorePs();
-
-  if (pos != totalSize) {
-    LOG_ERR("OTA", "incomplete download: %u / %u", static_cast<unsigned>(pos), static_cast<unsigned>(totalSize));
-    return INTERNAL_UPDATE_ERROR;
-  }
-
-  if (!ota_boot::switchTo(dest)) {
-    LOG_ERR("OTA", "manual otadata switch failed");
+  const auto fr = firmware_flash::flashFromSdPath(kOtaSdPath, progressCb, &flashCtx);
+  if (fr != firmware_flash::Result::OK) {
+    LOG_ERR("OTA", "flash failed: %s", firmware_flash::resultName(fr));
+    char buf[32];
+    snprintf(buf, sizeof(buf), "flash:%s", firmware_flash::resultName(fr));
+    lastError = buf;
     return INTERNAL_UPDATE_ERROR;
   }
 

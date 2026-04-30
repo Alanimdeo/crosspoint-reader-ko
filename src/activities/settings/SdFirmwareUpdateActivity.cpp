@@ -6,18 +6,13 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <Update.h>
-#include <esp_ota_ops.h>
-#include <esp_partition.h>
-#include <spi_flash_mmap.h>
-
-#include <memory>
 
 #include "MappedInputManager.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "network/OtaBootSwitch.h"
+#include "network/FirmwareFlasher.h"
 
 namespace {
 // First byte of every ESP32 firmware image (esp_image_header_t::magic).
@@ -150,113 +145,20 @@ void SdFirmwareUpdateActivity::onConfirmationResult(const ActivityResult& result
 }
 
 void SdFirmwareUpdateActivity::performUpdate() {
-  HalFile file;
-  if (!Storage.openFileForRead("FW", firmwarePath.c_str(), file) || !file) {
-    errorMessage = tr(STR_FIRMWARE_FILE_OPEN_FAILED);
-    RenderLock lock(*this);
-    state = State::FAILED;
-    requestUpdate();
-    return;
-  }
+  LOG_INF("FW", "SD update: %s (%u bytes)", firmwarePath.c_str(), static_cast<unsigned>(firmwareSize));
 
-  // Mirror the web flasher (crosspoint-reader-docs): raw partition write +
-  // direct otadata update. Skip Arduino Update entirely so we don't trip the
-  // running ESP-IDF's bogus esp_image_verify efuse-blk-rev check.
-  LOG_INF("FW", "SD update: raw partition write, size=%u bytes", static_cast<unsigned>(firmwareSize));
-
-  const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
-  if (!dest) {
-    LOG_ERR("FW", "esp_ota_get_next_update_partition returned null");
-    file.close();
-    errorMessage = tr(STR_FIRMWARE_WRITE_FAILED);
-    RenderLock lock(*this);
-    state = State::FAILED;
-    requestUpdate();
-    return;
-  }
-  LOG_INF("FW", "dest: %s @0x%x size=%u", dest->label, static_cast<unsigned>(dest->address),
-          static_cast<unsigned>(dest->size));
-
-  if (firmwareSize > dest->size) {
-    LOG_ERR("FW", "firmware too large: %u > %u", static_cast<unsigned>(firmwareSize),
-            static_cast<unsigned>(dest->size));
-    file.close();
-    errorMessage = tr(STR_FIRMWARE_TOO_LARGE);
-    RenderLock lock(*this);
-    state = State::FAILED;
-    requestUpdate();
-    return;
-  }
-
-  constexpr size_t SEC = SPI_FLASH_SEC_SIZE;    // 4 KiB
-  constexpr size_t BLK = SPI_FLASH_BLOCK_SIZE;  // 64 KiB
-  constexpr size_t CHUNK = 4096;
-  auto buffer = std::unique_ptr<uint8_t[]>(new (std::nothrow) uint8_t[CHUNK]);
-  if (!buffer) {
-    LOG_ERR("FW", "OOM allocating chunk buffer");
-    file.close();
-    errorMessage = tr(STR_FIRMWARE_WRITE_FAILED);
-    RenderLock lock(*this);
-    state = State::FAILED;
-    requestUpdate();
-    return;
-  }
-
-  // Interleave erase + write: erase one 64 KiB block right before writing into
-  // it, so the progress bar advances smoothly from 0 to 100% rather than
-  // stalling at 0% for several seconds during a single up-front erase.
-  size_t streamPos = 0;
-  size_t erasedUpto = 0;
-  while (streamPos < firmwareSize) {
-    if (streamPos >= erasedUpto) {
-      size_t eraseLen = std::min<size_t>(BLK, dest->size - streamPos);
-      eraseLen = (eraseLen + SEC - 1) & ~(SEC - 1);
-      eraseLen = std::min<size_t>(eraseLen, dest->size - streamPos);
-      if (esp_partition_erase_range(dest, streamPos, eraseLen) != ESP_OK) {
-        LOG_ERR("FW", "erase_range failed @%u (len=%u)", static_cast<unsigned>(streamPos),
-                static_cast<unsigned>(eraseLen));
-        file.close();
-        errorMessage = tr(STR_FIRMWARE_WRITE_FAILED);
-        RenderLock lock(*this);
-        state = State::FAILED;
-        requestUpdate();
-        return;
-      }
-      erasedUpto = streamPos + eraseLen;
-    }
-
-    const size_t want = std::min<size_t>(CHUNK, firmwareSize - streamPos);
-    const int got = file.read(buffer.get(), want);
-    if (got <= 0 || static_cast<size_t>(got) != want) {
-      LOG_ERR("FW", "Read failed @%u (got=%d want=%u)", static_cast<unsigned>(streamPos), got,
-              static_cast<unsigned>(want));
-      file.close();
-      errorMessage = tr(STR_FIRMWARE_WRITE_FAILED);
-      RenderLock lock(*this);
-      state = State::FAILED;
-      requestUpdate();
-      return;
-    }
-    if (esp_partition_write(dest, streamPos, buffer.get(), want) != ESP_OK) {
-      LOG_ERR("FW", "partition_write failed @%u", static_cast<unsigned>(streamPos));
-      file.close();
-      errorMessage = tr(STR_FIRMWARE_WRITE_FAILED);
-      RenderLock lock(*this);
-      state = State::FAILED;
-      requestUpdate();
-      return;
-    }
-    streamPos += want;
-    writtenBytes = streamPos;
+  auto progressCb = +[](size_t written, size_t total, void* ctx) {
+    auto* self = static_cast<SdFirmwareUpdateActivity*>(ctx);
+    self->writtenBytes = written;
+    self->firmwareSize = total;
     // immediate=true: wake the render task directly. We're in a tight sync
     // loop so the main loop won't drain the requestedUpdate flag for us.
-    requestUpdate(true);
-    delay(1);
-  }
-  file.close();
+    self->requestUpdate(true);
+  };
 
-  if (!ota_boot::switchTo(dest)) {
-    LOG_ERR("FW", "Manual otadata switch failed");
+  const auto result = firmware_flash::flashFromSdPath(firmwarePath.c_str(), progressCb, this);
+  if (result != firmware_flash::Result::OK) {
+    LOG_ERR("FW", "flash failed: %s", firmware_flash::resultName(result));
     errorMessage = tr(STR_FIRMWARE_WRITE_FAILED);
     RenderLock lock(*this);
     state = State::FAILED;
