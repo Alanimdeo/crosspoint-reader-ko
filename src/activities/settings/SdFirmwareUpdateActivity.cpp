@@ -220,7 +220,12 @@ void SdFirmwareUpdateActivity::render(RenderLock&&) {
     renderer.drawCenteredText(UI_10_FONT_ID, y, tr(STR_FIRMWARE_UPDATE_DO_NOT_POWER_OFF));
   } else if (state == State::SUCCESS) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_COMPLETE), true, EpdFontFamily::BOLD);
-    renderer.drawCenteredText(UI_10_FONT_ID, top + lineHeight + metrics.verticalSpacing, tr(STR_RESTARTING_HINT));
+    int hintY = top + lineHeight + metrics.verticalSpacing;
+    renderer.drawCenteredText(UI_10_FONT_ID, hintY, tr(STR_RESTARTING_HINT));
+    hintY += lineHeight;
+    renderer.drawCenteredText(UI_10_FONT_ID, hintY, tr(STR_RESTARTING_HINT_LINE2));
+    hintY += lineHeight;
+    renderer.drawCenteredText(UI_10_FONT_ID, hintY, tr(STR_RESTARTING_HINT_LINE3));
   } else if (state == State::FAILED) {
     renderer.drawCenteredText(UI_10_FONT_ID, top, tr(STR_UPDATE_FAILED), true, EpdFontFamily::BOLD);
     if (!errorMessage.empty()) {
