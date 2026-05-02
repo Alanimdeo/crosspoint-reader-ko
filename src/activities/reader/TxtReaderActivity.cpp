@@ -617,7 +617,7 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, bool firstLineIsParagrap
 
     // Word wrap if needed - use binary search for performance with SD fonts.
     // The size guard is a defensive belt-and-braces check; tryAddLine() also
-    // gates on capacity and will trigger goto pageFull when full.
+    // gates on capacity and will break out when full.
     // cppcheck-suppress knownConditionTrueFalse
     while (!line.empty() && static_cast<int>(outLines.size()) < maxLinesPerPage) {
       const int effectiveWidth = isFirstSegmentOfSourceLine ? viewportWidth - firstSegmentIndent : viewportWidth;
@@ -627,12 +627,16 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, bool firstLineIsParagrap
       const bool needsSpacing = needsExtraSpacingBefore && isFirstSegmentOfSourceLine && !extraSpacingApplied;
 
       if (breakPos >= line.length()) {
-        // Whole line fits — this is the last segment of a source line, so
-        // it marks the end of a paragraph (the next line in the source
-        // starts a new paragraph).
+        // Whole line fits character-wise — this is the last segment of a
+        // source line, so it marks the end of a paragraph (the next line in
+        // the source starts a new paragraph).
         if (!tryAddLine(line, true, isFirstSegmentOfSourceLine && sourceLineStartsParagraph, needsSpacing)) {
-          // Didn't fit — stop here, current source line stays unconsumed.
-          goto pageFull;
+          // Failed at viewport check. Break out so the partial-consumption
+          // path below advances pos by lineBytePos (any prior wrapped
+          // segments of this source line that we already added) — using
+          // goto here would skip that and the next page would re-render
+          // those segments.
+          break;
         }
         if (needsSpacing) extraSpacingApplied = true;
         lineBytePos = displayLen;
@@ -646,7 +650,10 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, bool firstLineIsParagrap
 
       if (!tryAddLine(line.substr(0, breakPos), false, isFirstSegmentOfSourceLine && sourceLineStartsParagraph,
                       needsSpacing)) {
-        goto pageFull;
+        // Same rationale as above: prior wrapped segments may already be in
+        // outLines, so we must advance pos by lineBytePos rather than
+        // jumping over the partial-consumption update.
+        break;
       }
       if (needsSpacing) extraSpacingApplied = true;
       isFirstSegmentOfSourceLine = false;
@@ -672,7 +679,6 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, bool firstLineIsParagrap
     }
     isFirstSourceLineOnPage = false;
   }
-pageFull:
 
   // Ensure we make progress even if calculations go wrong
   if (pos == 0 && !outLines.empty()) {
