@@ -3,6 +3,8 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 
+#include <algorithm>
+
 #include "CrossPointSettings.h"
 #include "FontSelectionActivity.h"
 #include "MappedInputManager.h"
@@ -33,11 +35,12 @@ std::vector<SettingInfo> ReaderOptionsActivity::buildSettings() {
     }
   }
 
-  for (const auto& s : getSettingsList()) {
-    if (s.nameId == StrId::STR_SUNLIGHT_FADING_FIX && s.valuePtr != nullptr) {
-      result.push_back(s);
-      break;
-    }
+  const auto& list = getSettingsList();
+  const auto fading = std::find_if(list.begin(), list.end(), [](const SettingInfo& s) {
+    return s.nameId == StrId::STR_SUNLIGHT_FADING_FIX && s.valuePtr != nullptr;
+  });
+  if (fading != list.end()) {
+    result.push_back(*fading);
   }
   return result;
 }
