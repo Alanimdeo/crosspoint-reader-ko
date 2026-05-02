@@ -16,7 +16,10 @@
 // as they belong to the included categories.
 class ReaderOptionsActivity final : public Activity {
  public:
-  explicit ReaderOptionsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
+  // `forTxtReader` drops EPUB-only settings (Images, Embedded Style) — TXT
+  // files have no embedded images and no HTML/CSS styling, so those toggles
+  // are meaningless in TXT context.
+  explicit ReaderOptionsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool forTxtReader = false);
   void onEnter() override;
   void onExit() override;
   void loop() override;
@@ -24,17 +27,22 @@ class ReaderOptionsActivity final : public Activity {
   bool isReaderActivity() const override { return true; }
 
  private:
-  // Build the filtered list. Whitelist:
-  //   - Display: STR_HIDE_BATTERY, STR_REFRESH_FREQ, STR_SUNLIGHT_FADING_FIX
-  //   - All STR_CAT_READER entries
+  // Build the filtered list. Reader Options exposes:
+  //   - Font selection (action)
+  //   - All STR_CAT_READER entries EXCEPT STR_ORIENTATION (the reader menu
+  //     already cycles orientation inline — duplicate exposure is confusing)
   //   - All STR_CAT_CONTROLS entries
-  // Only TOGGLE/ENUM/VALUE types are kept; ACTION/STRING types are skipped.
-  static std::vector<SettingInfo> buildSettings();
+  //   - STR_SUNLIGHT_FADING_FIX (display category, last)
+  // STR_IMAGES and STR_EMBEDDED_STYLE are also dropped when forTxtReader is
+  // true. Only TOGGLE/ENUM/VALUE types are kept here; ACTION items are added
+  // explicitly by buildSettings().
+  static std::vector<SettingInfo> buildSettings(bool forTxtReader);
 
   void toggleCurrentSetting();
 
   ButtonNavigator buttonNavigator;
   std::vector<SettingInfo> settings;
+  bool forTxtReader = false;
   int selectedSettingIndex = 0;
   int settingsCount = 0;
 };

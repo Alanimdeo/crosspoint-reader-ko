@@ -83,7 +83,8 @@ void TxtReaderMenuActivity::loop() {
     // returns to the menu, and changes are only applied when the menu itself
     // is dismissed (TxtReaderActivity reconciles on the menu result).
     if (selectedAction == MenuAction::READER_OPTIONS) {
-      startActivityForResult(std::make_unique<ReaderOptionsActivity>(renderer, mappedInput),
+      // forTxtReader=true drops Images and Embedded Style (EPUB-only).
+      startActivityForResult(std::make_unique<ReaderOptionsActivity>(renderer, mappedInput, /*forTxtReader=*/true),
                              [this](const ActivityResult&) { requestUpdate(); });
       return;
     }

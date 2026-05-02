@@ -12,14 +12,14 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
-ReaderOptionsActivity::ReaderOptionsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-    : Activity("ReaderOptions", renderer, mappedInput) {}
+ReaderOptionsActivity::ReaderOptionsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool forTxtReader)
+    : Activity("ReaderOptions", renderer, mappedInput), forTxtReader(forTxtReader) {}
 
-std::vector<SettingInfo> ReaderOptionsActivity::buildSettings() {
+std::vector<SettingInfo> ReaderOptionsActivity::buildSettings(bool forTxtReader) {
   std::vector<SettingInfo> result;
   result.reserve(20);
 
-  // Order: Font selection (action) first, then all Reader, then all Controls,
+  // Order: Font selection (action) first, then Reader/Controls categories,
   // then Sunlight fading fix at the very end (display category, by request).
   result.push_back(SettingInfo::Action(StrId::STR_FONT_FAMILY, SettingAction::FontSelection));
 
@@ -28,6 +28,18 @@ std::vector<SettingInfo> ReaderOptionsActivity::buildSettings() {
       continue;
     }
     if (s.valuePtr == nullptr) {
+      continue;
+    }
+    // Reader menu already exposes orientation as an inline rotate cycle, so
+    // omit it here to avoid duplicate exposure with subtly different UX
+    // (cycle-on-confirm vs. enum-cycle).
+    if (s.nameId == StrId::STR_ORIENTATION) {
+      continue;
+    }
+    // Drop EPUB-only settings when hosted by the TXT reader: TXT files have
+    // no embedded images and no HTML/CSS styling, so these toggles do
+    // nothing and would mislead the user.
+    if (forTxtReader && (s.nameId == StrId::STR_IMAGES || s.nameId == StrId::STR_EMBEDDED_STYLE)) {
       continue;
     }
     if (s.category == StrId::STR_CAT_READER || s.category == StrId::STR_CAT_CONTROLS) {
@@ -47,7 +59,7 @@ std::vector<SettingInfo> ReaderOptionsActivity::buildSettings() {
 
 void ReaderOptionsActivity::onEnter() {
   Activity::onEnter();
-  settings = buildSettings();
+  settings = buildSettings(forTxtReader);
   settingsCount = static_cast<int>(settings.size());
   selectedSettingIndex = 0;
   requestUpdate();
