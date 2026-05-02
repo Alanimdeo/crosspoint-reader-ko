@@ -6,6 +6,7 @@
 #include <cstdio>
 
 #include "MappedInputManager.h"
+#include "activities/settings/ReaderOptionsActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ReadingStats.h"
@@ -28,7 +29,8 @@ TxtReaderMenuActivity::TxtReaderMenuActivity(GfxRenderer& renderer, MappedInputM
 
 std::vector<TxtReaderMenuActivity::MenuItem> TxtReaderMenuActivity::buildMenuItems() {
   std::vector<MenuItem> items;
-  items.reserve(7);
+  items.reserve(8);
+  items.push_back({MenuAction::READER_OPTIONS, StrId::STR_READER_OPTIONS});
   items.push_back({MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION});
   items.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN});
   items.push_back({MenuAction::PAGE_JUMP_STEP, StrId::STR_PAGE_JUMP_STEP});
@@ -74,6 +76,15 @@ void TxtReaderMenuActivity::loop() {
     if (selectedAction == MenuAction::PAGE_JUMP_STEP) {
       selectedPageJumpOption = (selectedPageJumpOption + 1) % pageJumpLabels.size();
       requestUpdate();
+      return;
+    }
+
+    // Reader Options is a sub-activity of this menu — Back from options
+    // returns to the menu, and changes are only applied when the menu itself
+    // is dismissed (TxtReaderActivity reconciles on the menu result).
+    if (selectedAction == MenuAction::READER_OPTIONS) {
+      startActivityForResult(std::make_unique<ReaderOptionsActivity>(renderer, mappedInput),
+                             [this](const ActivityResult&) { requestUpdate(); });
       return;
     }
 

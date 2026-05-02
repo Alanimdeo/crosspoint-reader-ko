@@ -15,6 +15,7 @@
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "TxtReaderMenuActivity.h"
+#include "activities/settings/ReaderOptionsActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -204,19 +205,26 @@ void TxtReaderActivity::loop() {
     readingTimer.notifyInput();
     const float progress = fileSize > 0 ? (currentOffset * 100.0f / fileSize) : 0.0f;
     const int bookProgressPercent = clampPercent(static_cast<int>(progress + 0.5f));
+    // Snapshot orientation: Reader Options (sub-activity of the menu) writes
+    // directly to SETTINGS.orientation, while menu.orientation is the inline
+    // rotate-cycle value. Whichever differs from the snapshot is the user's
+    // intent.
+    const uint8_t menuOrientationSnapshot = SETTINGS.orientation;
     startActivityForResult(std::make_unique<TxtReaderMenuActivity>(
                                renderer, mappedInput, txt ? txt->getTitle() : std::string(), estimatedCurrentPage(),
                                estimatedTotalPages(), bookProgressPercent, SETTINGS.orientation, currentPageTurnOption,
                                currentPageJumpOption, readingTimer.totalSeconds()),
-                           [this](const ActivityResult& result) {
+                           [this, menuOrientationSnapshot](const ActivityResult& result) {
                              const auto& menu = std::get<MenuResult>(result.data);
-                             // Apply orientation, auto-turn, and page-jump even when cancelled —
-                             // the user cycled them inside the menu and expects them to stick.
-                             applyOrientation(menu.orientation);
+                             uint8_t finalOrientation = SETTINGS.orientation;
+                             if (menu.orientation != menuOrientationSnapshot) {
+                               finalOrientation = menu.orientation;
+                             }
+                             SETTINGS.orientation = menuOrientationSnapshot;
+                             applyOrientation(finalOrientation);
                              toggleAutoPageTurn(menu.pageTurnOption);
                              currentPageJumpOption = menu.pageJumpOption;
                              skipNextButtonCheck = true;
-                             // Returning from the menu counts as input so idle doesn't snap on.
                              readingTimer.notifyInput();
                              if (!result.isCancelled) {
                                onReaderMenuConfirm(static_cast<TxtReaderMenuActivity::MenuAction>(menu.action));
@@ -449,6 +457,11 @@ void TxtReaderActivity::onReaderMenuConfirm(const TxtReaderMenuActivity::MenuAct
       // Inline-cycle options are applied via menu.orientation /
       // menu.pageTurnOption / menu.pageJumpOption already consumed above.
       requestUpdate();
+      break;
+    case TxtReaderMenuActivity::MenuAction::READER_OPTIONS:
+      // Reader Options is a sub-activity of the menu, never dispatched here.
+      // Layout changes are auto-detected by recomputeLayout() on next render;
+      // orientation is reconciled in the menu's result handler in loop().
       break;
   }
 }

@@ -20,6 +20,7 @@ class TxtReaderMenuActivity final : public Activity {
     SCREENSHOT,
     GO_HOME,
     RESET_READING_TIMER,
+    READER_OPTIONS,
   };
 
   explicit TxtReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,

@@ -21,6 +21,7 @@
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
+#include "activities/settings/ReaderOptionsActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -164,21 +165,69 @@ void EpubReaderActivity::loop() {
       bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
     }
     const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
-    startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
-                               renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
-                               SETTINGS.orientation, !currentPageFootnotes.empty(), readingTimer.totalSeconds()),
-                           [this](const ActivityResult& result) {
-                             // Always apply orientation change even if the menu was cancelled
-                             const auto& menu = std::get<MenuResult>(result.data);
-                             applyOrientation(menu.orientation);
-                             toggleAutoPageTurn(menu.pageTurnOption);
-                             // Returning from the menu counts as input — keeps the
-                             // idle pause from triggering immediately on resume.
-                             readingTimer.notifyInput();
-                             if (!result.isCancelled) {
-                               onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
-                             }
-                           });
+    // Snapshot every layout-affecting setting + orientation before opening the
+    // menu. The menu hosts Reader Options as a sub-activity, so all changes
+    // (whether from the menu's inline rotate cycle or from Reader Options
+    // direct writes) are reconciled here when the menu finally exits — that
+    // way the user sees a single re-layout instead of one per setting touched.
+    const uint8_t menuOrientationSnapshot = SETTINGS.orientation;
+    const uint8_t menuLineSpacing = SETTINGS.lineSpacing;
+    const uint8_t menuScreenMargin = SETTINGS.screenMargin;
+    const uint8_t menuParagraphAlignment = SETTINGS.paragraphAlignment;
+    const uint8_t menuEmbeddedStyle = SETTINGS.embeddedStyle;
+    const uint8_t menuExtraParagraphSpacing = SETTINGS.extraParagraphSpacing;
+    const uint8_t menuParagraphIndent = SETTINGS.paragraphIndent;
+    const uint8_t menuCharacterWrap = SETTINGS.characterWrap;
+    const uint8_t menuTextAntiAliasing = SETTINGS.textAntiAliasing;
+    const uint8_t menuImageRendering = SETTINGS.imageRendering;
+    const int menuFontId = SETTINGS.getReaderFontId();
+    startActivityForResult(
+        std::make_unique<EpubReaderMenuActivity>(renderer, mappedInput, epub->getTitle(), currentPage, totalPages,
+                                                 bookProgressPercent, SETTINGS.orientation,
+                                                 !currentPageFootnotes.empty(), readingTimer.totalSeconds()),
+        [this, menuOrientationSnapshot, menuLineSpacing, menuScreenMargin, menuParagraphAlignment, menuEmbeddedStyle,
+         menuExtraParagraphSpacing, menuParagraphIndent, menuCharacterWrap, menuTextAntiAliasing, menuImageRendering,
+         menuFontId](const ActivityResult& result) {
+          const auto& menu = std::get<MenuResult>(result.data);
+
+          // Reconcile orientation: the menu's pending rotate-screen cycle and
+          // Reader Options' direct write both feed into the same setting.
+          // Pick whichever differs from the snapshot (menu cycle wins ties so
+          // the existing rotate-screen UX is preserved).
+          uint8_t finalOrientation = SETTINGS.orientation;
+          if (menu.orientation != menuOrientationSnapshot) {
+            finalOrientation = menu.orientation;
+          }
+          // applyOrientation() expects the SETTING to still hold the OLD
+          // value — restore the snapshot first so the helper does its full
+          // re-layout when the orientation actually changed.
+          SETTINGS.orientation = menuOrientationSnapshot;
+          applyOrientation(finalOrientation);
+          toggleAutoPageTurn(menu.pageTurnOption);
+
+          // applyOrientation() already invalidates the section when it
+          // changes orientation. For other layout-affecting settings we
+          // detect changes here and invalidate manually.
+          const bool orientationChanged = finalOrientation != menuOrientationSnapshot;
+          if (!orientationChanged) {
+            const bool layoutChanged =
+                menuLineSpacing != SETTINGS.lineSpacing || menuScreenMargin != SETTINGS.screenMargin ||
+                menuParagraphAlignment != SETTINGS.paragraphAlignment || menuEmbeddedStyle != SETTINGS.embeddedStyle ||
+                menuExtraParagraphSpacing != SETTINGS.extraParagraphSpacing ||
+                menuParagraphIndent != SETTINGS.paragraphIndent || menuCharacterWrap != SETTINGS.characterWrap ||
+                menuTextAntiAliasing != SETTINGS.textAntiAliasing || menuImageRendering != SETTINGS.imageRendering ||
+                menuFontId != SETTINGS.getReaderFontId();
+            if (layoutChanged) {
+              RenderLock lock(*this);
+              section.reset();
+            }
+          }
+
+          readingTimer.notifyInput();
+          if (!result.isCancelled) {
+            onReaderMenuConfirm(static_cast<EpubReaderMenuActivity::MenuAction>(menu.action));
+          }
+        });
   }
 
   // Long press BACK (1s+) goes to file selection
@@ -447,6 +496,11 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
                              });
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::READER_OPTIONS:
+      // Reader Options is launched as a sub-activity of the menu itself,
+      // never dispatched here. Layout/orientation changes are reconciled
+      // when the menu finally exits (see the menu's result handler in loop()).
+      break;
   }
 }
 

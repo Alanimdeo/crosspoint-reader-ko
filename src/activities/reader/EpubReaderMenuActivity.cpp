@@ -6,6 +6,7 @@
 #include <cstdio>
 
 #include "MappedInputManager.h"
+#include "activities/settings/ReaderOptionsActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ReadingStats.h"
@@ -25,11 +26,12 @@ EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInpu
 
 std::vector<EpubReaderMenuActivity::MenuItem> EpubReaderMenuActivity::buildMenuItems(bool hasFootnotes) {
   std::vector<MenuItem> items;
-  items.reserve(11);
+  items.reserve(12);
   items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
   if (hasFootnotes) {
     items.push_back({MenuAction::FOOTNOTES, StrId::STR_FOOTNOTES});
   }
+  items.push_back({MenuAction::READER_OPTIONS, StrId::STR_READER_OPTIONS});
   items.push_back({MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION});
   items.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN});
   items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});
@@ -73,6 +75,15 @@ void EpubReaderMenuActivity::loop() {
     if (selectedAction == MenuAction::AUTO_PAGE_TURN) {
       selectedPageTurnOption = (selectedPageTurnOption + 1) % pageTurnLabels.size();
       requestUpdate();
+      return;
+    }
+
+    // Reader Options is launched as a sub-activity so the menu stays on the
+    // stack — Back from options returns to this menu, and only when the user
+    // exits the menu itself does EpubReaderActivity apply layout changes.
+    if (selectedAction == MenuAction::READER_OPTIONS) {
+      startActivityForResult(std::make_unique<ReaderOptionsActivity>(renderer, mappedInput),
+                             [this](const ActivityResult&) { requestUpdate(); });
       return;
     }
 
