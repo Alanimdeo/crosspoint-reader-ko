@@ -11,6 +11,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "SleepImageSelectionStore.h"
 #include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -83,6 +84,30 @@ void SleepActivity::renderCustomSleepScreen() const {
         continue;
       }
       files.emplace_back(filename);
+    }
+    // Honor the user's per-file selection from Sleep Image Selection. The
+    // store keeps absolute paths ("/.sleep/foo.bmp"), so we filter `files`
+    // (which are bare filenames at this point) by reconstructing the same
+    // form. Fail-safe rules:
+    //   - empty store     -> use ALL discovered BMPs (backward compat)
+    //   - non-empty store -> keep only matching entries
+    //   - filtered empty  -> fall back to ALL (the user shouldn't end up on
+    //                        the default sleep screen because every saved
+    //                        path is missing — better to keep showing the
+    //                        candidates that DO exist).
+    SleepImageSelectionStore::getInstance().loadFromFile();
+    if (!SleepImageSelectionStore::getInstance().empty()) {
+      std::vector<std::string> filtered;
+      filtered.reserve(files.size());
+      for (const auto& fname : files) {
+        const std::string fullPath = std::string(sleepDir) + "/" + fname;
+        if (SleepImageSelectionStore::getInstance().isSelected(fullPath)) {
+          filtered.push_back(fname);
+        }
+      }
+      if (!filtered.empty()) {
+        files = std::move(filtered);
+      }
     }
     const auto numFiles = files.size();
     if (numFiles > 0) {

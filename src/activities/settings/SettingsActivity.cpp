@@ -14,6 +14,7 @@
 #include "OtaUpdateActivity.h"
 #include "SdFirmwareUpdateActivity.h"
 #include "SettingsList.h"
+#include "SleepImageSelectionActivity.h"
 #include "StatusBarSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
@@ -46,6 +47,9 @@ void SettingsActivity::onEnter() {
   }
 
   // Append device-only ACTION items
+  // Sleep image selection sits under Display because it controls what shows
+  // when the device sleeps in Custom or Cover+Custom mode.
+  displaySettings.push_back(SettingInfo::Action(StrId::STR_SELECT_SLEEP_SCREENS, SettingAction::SelectSleepScreens));
   readerSettings.insert(readerSettings.begin(),
                         SettingInfo::Action(StrId::STR_FONT_FAMILY, SettingAction::FontSelection));
   controlsSettings.insert(controlsSettings.begin(),
@@ -202,6 +206,9 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::FontSelection:
         startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::SelectSleepScreens:
+        startActivityForResult(std::make_unique<SleepImageSelectionActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::None:
         // Do nothing
