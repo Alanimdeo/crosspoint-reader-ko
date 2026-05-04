@@ -808,22 +808,40 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   auto* fcm = renderer.getFontCacheManager();
   fcm->resetStats();
 
-  // Font prewarm: scan pass accumulates text, then prewarm, then real render
-  // cppcheck-suppress unreadVariable  ; referenced only inside LOG_DBG, which compiles out at LOG_LEVEL<2
+  // Heap headroom thresholds (contiguous block, not total free):
+  //   - PNG decoder needs ~44 KB contiguous
+  //   - Grayscale BW snapshot uses 6× 8 KB chunks (chunked, doesn't need contiguous)
+  //   - Page render allocations + status bar add ~10–20 KB
+  // Below ~50 KB max-alloc we've seen the cascading PNG/CSS/BW failures that
+  // led to the ko.17 priority-inheritance crash. Skip the heaviest paths
+  // (image-AA double render, grayscale anti-aliasing) and fall back to a
+  // BW-only render when contiguous heap is below the gate.
+  static constexpr uint32_t MIN_MAX_ALLOC_FOR_HEAVY_RENDER = 50 * 1024;
   const uint32_t heapBefore = esp_get_free_heap_size();
+  const uint32_t maxAllocBefore = ESP.getMaxAllocHeap();
+  const uint32_t minFreeBefore = ESP.getMinFreeHeap();
+  const bool heapStressed = maxAllocBefore < MIN_MAX_ALLOC_FOR_HEAVY_RENDER;
+  if (heapStressed) {
+    LOG_ERR("ERS", "Heap stressed: maxAlloc=%lu < %u — disabling grayscale + image-AA double render", maxAllocBefore,
+            MIN_MAX_ALLOC_FOR_HEAVY_RENDER);
+  }
+  LOG_DBG("ERS", "Heap entry: free=%lu maxAlloc=%lu minFree=%lu", heapBefore, maxAllocBefore, minFreeBefore);
+
+  // Font prewarm: scan pass accumulates text, then prewarm, then real render
   auto scope = fcm->createPrewarmScope();
   page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);  // scan pass
   scope.endScanAndPrewarm();
-  // cppcheck-suppress unreadVariable  ; see above
+  // cppcheck-suppress unreadVariable  ; referenced only inside LOG_DBG, which compiles out at LOG_LEVEL<2
   const uint32_t heapAfter = esp_get_free_heap_size();
   fcm->logStats("prewarm");
   const auto tPrewarm = millis();
 
-  LOG_DBG("ERS", "Heap: before=%lu after=%lu delta=%ld", heapBefore, heapAfter,
-          (int32_t)heapAfter - (int32_t)heapBefore);
+  LOG_DBG("ERS", "Heap after prewarm: free=%lu delta=%ld", heapAfter, (int32_t)heapAfter - (int32_t)heapBefore);
 
-  // Force special handling for pages with images when anti-aliasing is on
-  bool imagePageWithAA = page->hasImages() && SETTINGS.textAntiAliasing;
+  // Force special handling for pages with images when anti-aliasing is on,
+  // but skip the heavy double-render path under heap stress. The single BW
+  // render below still produces a readable page.
+  bool imagePageWithAA = page->hasImages() && SETTINGS.textAntiAliasing && !heapStressed;
 
   page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
   renderStatusBar();
@@ -831,37 +849,53 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const auto tBwRender = millis();
 
   if (imagePageWithAA) {
-    // Double FAST_REFRESH with selective image blanking (pablohc's technique):
-    // HALF_REFRESH sets particles too firmly for the grayscale LUT to adjust.
-    // Instead, blank only the image area and do two fast refreshes.
-    // Step 1: Display page with image area blanked (text appears, image area white)
-    // Step 2: Re-render with images and display again (images appear clean)
-    int16_t imgX, imgY, imgW, imgH;
-    if (page->getImageBoundingBox(imgX, imgY, imgW, imgH)) {
-      renderer.fillRect(imgX + orientedMarginLeft, imgY + orientedMarginTop, imgW, imgH, false);
-      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-
-      // Re-render page content to restore images into the blanked area
-      // Status bar is not re-rendered here to avoid reading stale dynamic values (e.g. battery %)
-      page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
-      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    // Mid-cycle heap re-check: even if entry was OK, the first page->render()
+    // and image decoding may have fragmented heap further. If max-alloc
+    // dropped below the gate, fall back to single HALF_REFRESH.
+    const uint32_t maxAllocMid = ESP.getMaxAllocHeap();
+    if (maxAllocMid < MIN_MAX_ALLOC_FOR_HEAVY_RENDER) {
+      LOG_ERR("ERS", "Heap dropped during render: maxAlloc=%lu — skipping image-AA double render", maxAllocMid);
+      ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
+      imagePageWithAA = false;  // also skips grayscale below
     } else {
-      renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+      // Double FAST_REFRESH with selective image blanking (pablohc's technique):
+      // HALF_REFRESH sets particles too firmly for the grayscale LUT to adjust.
+      // Instead, blank only the image area and do two fast refreshes.
+      // Step 1: Display page with image area blanked (text appears, image area white)
+      // Step 2: Re-render with images and display again (images appear clean)
+      int16_t imgX, imgY, imgW, imgH;
+      if (page->getImageBoundingBox(imgX, imgY, imgW, imgH)) {
+        renderer.fillRect(imgX + orientedMarginLeft, imgY + orientedMarginTop, imgW, imgH, false);
+        renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+
+        // Re-render page content to restore images into the blanked area
+        // Status bar is not re-rendered here to avoid reading stale dynamic values (e.g. battery %)
+        page->render(renderer, SETTINGS.getReaderFontId(), orientedMarginLeft, orientedMarginTop);
+        renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+      } else {
+        renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+      }
+      // Double FAST_REFRESH handles ghosting for image pages; don't count toward full refresh cadence
     }
-    // Double FAST_REFRESH handles ghosting for image pages; don't count toward full refresh cadence
   } else {
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
   }
   const auto tDisplay = millis();
 
   // Save bw buffer to reset buffer state after grayscale data sync.
-  // If allocation fails (heap fragmented), skip the grayscale pass entirely —
-  // the BW framebuffer already holds the rendered page, so leave it untouched.
-  // Entering the grayscale path without a snapshot would wipe the framebuffer
-  // via clearScreen() and then fail to restore it, eventually triggering abort()
-  // on follow-up allocations inside page->render().
-  const bool bwStored = renderer.storeBwBuffer();
-  if (!bwStored) {
+  // Two early-exits here:
+  //   1. heapStressed — entry-time max-alloc was already below the gate; skip
+  //      storeBwBuffer entirely so we don't even spend cycles on 6× 8 KB
+  //      chunk allocs that compete with whatever paint cycle still has to
+  //      finish.
+  //   2. storeBwBuffer returns false — chunked alloc itself failed mid-way
+  //      (rolled back internally). ko.3 fix.
+  // In both cases the BW framebuffer already holds the rendered page, so we
+  // leave it untouched and skip the grayscale anti-aliasing pass.
+  const bool bwStored = !heapStressed && renderer.storeBwBuffer();
+  if (heapStressed) {
+    LOG_DBG("ERS", "Heap stressed at render entry — skipping grayscale pass without attempting storeBwBuffer");
+  } else if (!bwStored) {
     LOG_ERR("ERS", "storeBwBuffer failed (heap fragmented) — skipping grayscale pass");
   }
   const auto tBwStore = millis();

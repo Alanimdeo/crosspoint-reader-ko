@@ -255,6 +255,14 @@ void setup() {
 
   HalSystem::begin();
   gpio.begin();
+  // Force CPU to 160 MHz before HalPowerManager records normalFreq, otherwise
+  // we inherit whatever the second-stage bootloader left us with. On locked X3
+  // devices the original Xteink bootloader hands off at a much lower clock
+  // (observed ~10–40 MHz), and HalPowerManager would then treat that low
+  // clock as "normal" forever — every operation in the app runs 4–16× slower
+  // than it should, manifesting as the "lag-like" pauses on activity exit
+  // and the long book-load times that don't reproduce on unlocked X3.
+  setCpuFrequencyMhz(160);
   powerManager.begin();
   halClock.begin();
   halTiltSensor.begin();

@@ -238,9 +238,14 @@ int pngDrawCallback(PNGDRAW* pDraw) {
 }  // namespace
 
 bool PngToFramebufferConverter::getDimensionsStatic(const std::string& imagePath, ImageDimensions& out) {
-  size_t freeHeap = ESP.getFreeHeap();
-  if (freeHeap < MIN_FREE_HEAP_FOR_PNG) {
-    LOG_ERR("PNG", "Not enough heap for PNG decoder (%u free, need %u)", freeHeap, MIN_FREE_HEAP_FOR_PNG);
+  // Use getMaxAllocHeap() (largest contiguous block) instead of getFreeHeap()
+  // (total free): the PNG decoder is a single ~44 KB allocation, so total free
+  // can be misleading on a fragmented heap — the 4× repeated PNG-decoder alloc
+  // failures we saw on ko.17 were exactly this case.
+  const size_t maxAlloc = ESP.getMaxAllocHeap();
+  if (maxAlloc < MIN_FREE_HEAP_FOR_PNG) {
+    LOG_ERR("PNG", "Not enough contiguous heap for PNG decoder (maxAlloc %u, need %u)", maxAlloc,
+            MIN_FREE_HEAP_FOR_PNG);
     return false;
   }
 
@@ -271,9 +276,14 @@ bool PngToFramebufferConverter::decodeToFramebuffer(const std::string& imagePath
                                                     const RenderConfig& config) {
   LOG_DBG("PNG", "Decoding PNG: %s", imagePath.c_str());
 
-  size_t freeHeap = ESP.getFreeHeap();
-  if (freeHeap < MIN_FREE_HEAP_FOR_PNG) {
-    LOG_ERR("PNG", "Not enough heap for PNG decoder (%u free, need %u)", freeHeap, MIN_FREE_HEAP_FOR_PNG);
+  // Use getMaxAllocHeap() (largest contiguous block) instead of getFreeHeap()
+  // (total free): the PNG decoder is a single ~44 KB allocation, so total free
+  // can be misleading on a fragmented heap — the 4× repeated PNG-decoder alloc
+  // failures we saw on ko.17 were exactly this case.
+  const size_t maxAlloc = ESP.getMaxAllocHeap();
+  if (maxAlloc < MIN_FREE_HEAP_FOR_PNG) {
+    LOG_ERR("PNG", "Not enough contiguous heap for PNG decoder (maxAlloc %u, need %u)", maxAlloc,
+            MIN_FREE_HEAP_FOR_PNG);
     return false;
   }
 
