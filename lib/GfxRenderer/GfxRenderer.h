@@ -45,6 +45,12 @@ class GfxRenderer {
   std::vector<uint8_t*> bwBufferChunks;
   std::map<int, std::unique_ptr<UnifiedFontFamily>> fontMap;
   int fallbackFontId = 0;  // Default fallback font ID (set after fonts are loaded)
+  // UI system-font redirect: requests for fontRedirectFrom_ resolve to fontRedirectTo_ in
+  // getEffectiveFontId(). Used to replace the whole UI font with a user-selected SD "system
+  // font" while keeping the original UI font registered (as that font's glyph fallback).
+  // 0 = inactive. Two scalars instead of a map to avoid any heap allocation.
+  int fontRedirectFrom_ = 0;
+  int fontRedirectTo_ = 0;
 
   // Mutable because drawText() is const but needs to delegate scan-mode
   // recording to the (non-const) FontCacheManager.
@@ -83,6 +89,18 @@ class GfxRenderer {
   bool setGlyphFallback(int targetFontId, int fallbackFontId);
   // Remove a previously-set glyph-level fallback from targetFontId.
   void clearGlyphFallback(int targetFontId);
+  // Whole-font redirect: text requests for fromId resolve to toId (see getEffectiveFontId).
+  // Used to swap the entire UI font over to a user-selected SD "system font" while keeping the
+  // original UI font registered as that font's glyph-level fallback. Both ids should be registered.
+  void setFontRedirect(int fromId, int toId) {
+    fontRedirectFrom_ = fromId;
+    fontRedirectTo_ = toId;
+  }
+  // Remove the whole-font redirect (UI reverts to its native font).
+  void clearFontRedirect() {
+    fontRedirectFrom_ = 0;
+    fontRedirectTo_ = 0;
+  }
   // Check if a font is registered
   bool hasFont(int fontId) const { return fontMap.find(fontId) != fontMap.end(); }
   // Remove a font from the registry (frees memory for SD fonts)

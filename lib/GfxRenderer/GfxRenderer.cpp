@@ -74,6 +74,13 @@ void GfxRenderer::clearGlyphFallback(const int targetFontId) {
 }
 
 int GfxRenderer::getEffectiveFontId(const int fontId) const {
+  // UI system-font redirect: when an SD "system font" is active it replaces the UI font
+  // wholesale, so a request for the redirected id (the native Pretendard UI font) resolves to
+  // the SD system-font slot. Pretendard stays registered as that font's glyph-level fallback.
+  // The leading scalar compare keeps the no-system-font hot path branch-free.
+  if (fontRedirectFrom_ != 0 && fontId == fontRedirectFrom_ && fontMap.find(fontRedirectTo_) != fontMap.end()) {
+    return fontRedirectTo_;
+  }
   if (fontMap.find(fontId) != fontMap.end()) {
     return fontId;
   }

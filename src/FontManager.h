@@ -8,7 +8,8 @@ class GfxRenderer;
 bool reloadCustomReaderFont();
 
 // Reload UI system font - removes old SD system font and loads the configured one,
-// rewiring it as the glyph-level fallback for the Pretendard UI font.
+// making it the primary UI font with Pretendard as its glyph-level fallback. If the
+// setting was cleared, the UI reverts to Pretendard.
 // Call this when the system-font setting changes to apply immediately without reboot.
 // Returns true if a system font is now active.
 bool reloadSystemFont();

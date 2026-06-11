@@ -135,9 +135,10 @@ bool reloadCustomReaderFont() {
   return loadCustomReaderFont(renderer);
 }
 
-// Load the UI system font from SD card (if configured) and wire it as the glyph-level
-// fallback for the Pretendard UI font. Pretendard only covers Hangul + Latin, so this lets
-// book titles / menu entries display Hanja, Kana and other glyphs the system font provides.
+// Load the UI system font from SD card (if configured) and make it the primary UI font,
+// with Pretendard kept as its glyph-level fallback. The whole UI (all UI_FONT_ID slots)
+// renders with the SD font; any codepoint the SD font lacks falls back to Pretendard.
+// When no system font is configured (or the user clears it), the UI uses Pretendard only.
 // Returns true if a system font is now active.
 bool loadSystemFont(GfxRenderer& gfxRenderer) {
   if (!SETTINGS.hasSystemFont()) {
@@ -156,10 +157,12 @@ bool loadSystemFont(GfxRenderer& gfxRenderer) {
   }
 
   if (trySdFontLoad(gfxRenderer, SYSTEM_FONT_ID, "SystemFont", fontPath)) {
-    // Back every UI slot with the system font. All UI font IDs alias the same
-    // registered family, so wiring UI_FONT_ID covers the whole UI.
-    gfxRenderer.setGlyphFallback(UI_FONT_ID, SYSTEM_FONT_ID);
-    LOG_DBG("FNT", "System font loaded and wired as UI glyph fallback");
+    // SD system font becomes the primary UI font; Pretendard backs it as the glyph-level
+    // fallback for codepoints the SD font lacks. The redirect points every UI_FONT_ID
+    // request (all UI slots alias it) at the SD font slot, so the whole UI switches over.
+    gfxRenderer.setGlyphFallback(SYSTEM_FONT_ID, UI_FONT_ID);
+    gfxRenderer.setFontRedirect(UI_FONT_ID, SYSTEM_FONT_ID);
+    LOG_DBG("FNT", "System font loaded as primary UI font (Pretendard fallback)");
     return true;
   }
 
@@ -171,11 +174,14 @@ bool loadSystemFont(GfxRenderer& gfxRenderer) {
 
 // Reload UI system font - removes old SD system font and loads the configured one.
 // Call this when the system-font setting changes to apply immediately without reboot.
+// If the user cleared the setting, the UI reverts to Pretendard.
 bool reloadSystemFont() {
   LOG_DBG("FNT", "Reloading system font...");
 
-  // Detach the fallback first so the UI font never points at a font we are about to free.
-  renderer.clearGlyphFallback(UI_FONT_ID);
+  // Drop the redirect first so UI_FONT_ID stops resolving to a font we are about to free,
+  // then detach the SD font's fallback wiring before removing it.
+  renderer.clearFontRedirect();
+  renderer.clearGlyphFallback(SYSTEM_FONT_ID);
 
   if (renderer.hasFont(SYSTEM_FONT_ID)) {
     renderer.removeFont(SYSTEM_FONT_ID);
