@@ -137,6 +137,10 @@ class SdFontData {
   // Get glyph by codepoint (loads bitmap on demand)
   const EpdGlyph* getGlyph(uint32_t codepoint) const;
 
+  // Returns true if this font actually contains codepoint (interval lookup only,
+  // no SD bitmap/metadata load — safe to call cheaply for glyph-fallback decisions).
+  bool hasGlyph(uint32_t codepoint) const { return loaded && findGlyphIndex(codepoint) >= 0; }
+
   // Get bitmap for a glyph (loads from SD if not cached)
   const uint8_t* getGlyphBitmap(uint32_t codepoint) const;
 
@@ -174,6 +178,8 @@ class SdFont {
   void getTextDimensions(const char* string, int* w, int* h) const;
   bool hasPrintableChars(const char* string) const;
   const EpdGlyph* getGlyph(uint32_t cp) const;
+  // Returns true only if the font actually contains a real glyph for cp.
+  bool hasGlyph(uint32_t cp) const { return data && data->hasGlyph(cp); }
   const uint8_t* getGlyphBitmap(uint32_t cp) const;
 
   // Metadata accessors

@@ -141,9 +141,10 @@ void FontSelectionActivity::loadFontList() {
   fontFiles.clear();
   fontNames.clear();
 
-  // First entry is always the default font (empty path means default)
+  // First entry is always the default font (empty path means default).
+  // Reader default is KoPub Batang; UI system-font default is Pretendard.
   fontFiles.emplace_back("");
-  fontNames.emplace_back(DEFAULT_FONT_NAME);
+  fontNames.emplace_back(isSystemTarget() ? "Pretendard (기본)" : DEFAULT_FONT_NAME);
 
   // Ensure fonts directory exists
   Storage.mkdir("/.crosspoint");
@@ -159,9 +160,11 @@ void FontSelectionActivity::loadFontList() {
 
   // Find currently selected font index
   selectedIndex = 0;  // Default
-  if (SETTINGS.hasCustomFont()) {
+  const bool hasCurrent = isSystemTarget() ? SETTINGS.hasSystemFont() : SETTINGS.hasCustomFont();
+  const char* currentPath = isSystemTarget() ? SETTINGS.systemFontPath : SETTINGS.customFontPath;
+  if (hasCurrent) {
     for (size_t i = 1; i < fontFiles.size(); i++) {
-      if (fontFiles[i] == SETTINGS.customFontPath) {
+      if (fontFiles[i] == currentPath) {
         selectedIndex = static_cast<int>(i);
         break;
       }
@@ -235,24 +238,31 @@ void FontSelectionActivity::handleSelection() {
   renderer.drawCenteredText(UI_10_FONT_ID, renderer.getScreenHeight() / 2 - 10, "글꼴 적용 중...");
   renderer.displayBuffer();
 
-  // Update custom font path in settings
+  // Update the target font path in settings
+  char* destPath = isSystemTarget() ? SETTINGS.systemFontPath : SETTINGS.customFontPath;
+  const size_t destSize = isSystemTarget() ? sizeof(SETTINGS.systemFontPath) : sizeof(SETTINGS.customFontPath);
   if (selectedIndex == 0) {
-    // Default font selected - clear custom font path
-    SETTINGS.customFontPath[0] = '\0';
+    // Default selected - clear the path
+    destPath[0] = '\0';
   } else {
-    // Custom font selected
-    strncpy(SETTINGS.customFontPath, fontFiles[selectedIndex].c_str(), sizeof(SETTINGS.customFontPath) - 1);
-    SETTINGS.customFontPath[sizeof(SETTINGS.customFontPath) - 1] = '\0';
+    strncpy(destPath, fontFiles[selectedIndex].c_str(), destSize - 1);
+    destPath[destSize - 1] = '\0';
   }
 
   SETTINGS.saveToFile();
-  LOG_DBG("FNT", "Font selected: %s", selectedIndex == 0 ? "default" : SETTINGS.customFontPath);
+  LOG_DBG("FNT", "Font selected (%s): %s", isSystemTarget() ? "system" : "reader",
+          selectedIndex == 0 ? "default" : destPath);
 
-  // Reload custom font dynamically (no reboot needed)
-  reloadCustomReaderFont();
-
-  // Invalidate EPUB/TXT caches since font changed
-  invalidateReaderCaches();
+  if (isSystemTarget()) {
+    // Reload UI system font dynamically (no reboot needed). UI-only, so reader caches
+    // are unaffected and must NOT be invalidated.
+    reloadSystemFont();
+  } else {
+    // Reload custom reader font dynamically (no reboot needed)
+    reloadCustomReaderFont();
+    // Invalidate EPUB/TXT caches since the reader font changed
+    invalidateReaderCaches();
+  }
 
   xSemaphoreGive(displayMutex);
 
@@ -279,7 +289,8 @@ void FontSelectionActivity::render() {
   const auto pageHeight = renderer.getScreenHeight();
 
   // Draw header
-  renderer.drawCenteredText(UI_12_FONT_ID, 15, "글꼴 선택", true, EpdFontFamily::BOLD);
+  renderer.drawCenteredText(UI_12_FONT_ID, 15, isSystemTarget() ? "시스템 글꼴 선택" : "글꼴 선택", true,
+                            EpdFontFamily::BOLD);
 
   // Calculate visible items (with scrolling if needed)
   constexpr int lineHeight = 30;
@@ -297,9 +308,11 @@ void FontSelectionActivity::render() {
 
   // Determine current selection (for checkmark comparison)
   int currentSelectedIndex = 0;  // Default
-  if (SETTINGS.hasCustomFont()) {
+  const bool hasCurrent = isSystemTarget() ? SETTINGS.hasSystemFont() : SETTINGS.hasCustomFont();
+  const char* currentPath = isSystemTarget() ? SETTINGS.systemFontPath : SETTINGS.customFontPath;
+  if (hasCurrent) {
     for (size_t i = 1; i < fontFiles.size(); i++) {
-      if (fontFiles[i] == SETTINGS.customFontPath) {
+      if (fontFiles[i] == currentPath) {
         currentSelectedIndex = static_cast<int>(i);
         break;
       }

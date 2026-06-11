@@ -50,6 +50,8 @@ void SettingsActivity::onEnter() {
   // Sleep image selection sits under Display because it controls what shows
   // when the device sleeps in Custom or Cover+Custom mode.
   displaySettings.push_back(SettingInfo::Action(StrId::STR_SELECT_SLEEP_SCREENS, SettingAction::SelectSleepScreens));
+  // UI system font (Hanja/Kana fallback for the Hangul/Latin Pretendard UI font)
+  displaySettings.push_back(SettingInfo::Action(StrId::STR_SYSTEM_FONT, SettingAction::SystemFontSelection));
   readerSettings.insert(readerSettings.begin(),
                         SettingInfo::Action(StrId::STR_FONT_FAMILY, SettingAction::FontSelection));
   controlsSettings.insert(controlsSettings.begin(),
@@ -207,6 +209,11 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::FontSelection:
         startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput), resultHandler);
         break;
+      case SettingAction::SystemFontSelection:
+        startActivityForResult(
+            std::make_unique<FontSelectionActivity>(renderer, mappedInput, FontSelectionActivity::Target::System),
+            resultHandler);
+        break;
       case SettingAction::SelectSleepScreens:
         startActivityForResult(std::make_unique<SleepImageSelectionActivity>(renderer, mappedInput), resultHandler);
         break;
@@ -262,6 +269,8 @@ void SettingsActivity::render(RenderLock&&) {
           valueText = std::to_string(SETTINGS.*(setting.valuePtr));
         } else if (setting.type == SettingType::ACTION && setting.action == SettingAction::FontSelection) {
           valueText = SETTINGS.getCustomFontName();
+        } else if (setting.type == SettingType::ACTION && setting.action == SettingAction::SystemFontSelection) {
+          valueText = SETTINGS.getSystemFontName();
         }
         return valueText;
       },

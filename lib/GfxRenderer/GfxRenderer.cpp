@@ -54,6 +54,25 @@ bool GfxRenderer::removeFont(const int fontId) {
   return true;
 }
 
+bool GfxRenderer::setGlyphFallback(const int targetFontId, const int fallbackFontId) {
+  auto target = fontMap.find(targetFontId);
+  auto fallback = fontMap.find(fallbackFontId);
+  if (target == fontMap.end() || fallback == fontMap.end()) {
+    LOG_ERR("GFX", "setGlyphFallback: font not found (target %d, fallback %d)", targetFontId, fallbackFontId);
+    return false;
+  }
+  target->second->setGlyphFallback(fallback->second.get());
+  LOG_DBG("GFX", "Glyph fallback set: %d -> %d", targetFontId, fallbackFontId);
+  return true;
+}
+
+void GfxRenderer::clearGlyphFallback(const int targetFontId) {
+  auto target = fontMap.find(targetFontId);
+  if (target != fontMap.end()) {
+    target->second->setGlyphFallback(nullptr);
+  }
+}
+
 int GfxRenderer::getEffectiveFontId(const int fontId) const {
   if (fontMap.find(fontId) != fontMap.end()) {
     return fontId;
@@ -116,35 +135,39 @@ template <TextRotation rotation>
 static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode renderMode,
                            const UnifiedFontFamily& fontFamily, const uint32_t cp, int cursorX, int cursorY,
                            const bool pixelState, const EpdFontFamily::Style style) {
-  const EpdGlyph* glyph = fontFamily.getGlyph(cp, style);
+  // Resolve which family actually owns this codepoint's glyph (primary, or the glyph-level
+  // fallback "system font"). All per-glyph metrics/bitmap below must come from the resolved
+  // family, since a fallback glyph has its own ascender / is2Bit / bitmap source.
+  const EpdGlyph* glyph = nullptr;
+  const UnifiedFontFamily& resolved = *fontFamily.familyForGlyph(cp, style, &glyph);
   if (!glyph) {
-    LOG_ERR("GFX", "No glyph for codepoint %d", cp);
+    // No real glyph anywhere and no replacement glyph: nothing to draw.
     return;
   }
 
-  const bool is2Bit = fontFamily.is2Bit(style);
+  const bool is2Bit = resolved.is2Bit(style);
   const uint8_t width = glyph->width;
   const uint8_t height = glyph->height;
   const int left = glyph->left;
   const int top = glyph->top;
-  const uint8_t ascender = static_cast<uint8_t>(fontFamily.getAscender(style));
+  const uint8_t ascender = static_cast<uint8_t>(resolved.getAscender(style));
 
   // Synthetic bold: draw each on pixel again one column over when bold is requested
-  // but the font has no bold variant.
+  // but the resolved font has no bold variant.
   const bool syntheticBold =
-      (style == EpdFontFamily::BOLD || style == EpdFontFamily::BOLD_ITALIC) && !fontFamily.hasBold();
+      (style == EpdFontFamily::BOLD || style == EpdFontFamily::BOLD_ITALIC) && !resolved.hasBold();
 
   // Get bitmap: flash path uses the compressed/cached decompressor via the renderer helper,
   // SD path uses its own on-demand loader. UnifiedFontFamily::getGlyphBitmap handles both,
   // but flash fonts benefit from the decompressor cache, so route flash through the renderer.
   const uint8_t* bitmap = nullptr;
-  if (fontFamily.getType() == UnifiedFontFamily::Type::FLASH) {
-    const EpdFontData* fontData = fontFamily.getFlashData(style);
+  if (resolved.getType() == UnifiedFontFamily::Type::FLASH) {
+    const EpdFontData* fontData = resolved.getFlashData(style);
     if (fontData) {
       bitmap = renderer.getGlyphBitmap(fontData, glyph);
     }
   } else {
-    bitmap = fontFamily.getGlyphBitmap(cp, style);
+    bitmap = resolved.getGlyphBitmap(cp, style);
   }
 
   if (bitmap != nullptr) {

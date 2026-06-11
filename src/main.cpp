@@ -135,6 +135,56 @@ bool reloadCustomReaderFont() {
   return loadCustomReaderFont(renderer);
 }
 
+// Load the UI system font from SD card (if configured) and wire it as the glyph-level
+// fallback for the Pretendard UI font. Pretendard only covers Hangul + Latin, so this lets
+// book titles / menu entries display Hanja, Kana and other glyphs the system font provides.
+// Returns true if a system font is now active.
+bool loadSystemFont(GfxRenderer& gfxRenderer) {
+  if (!SETTINGS.hasSystemFont()) {
+    LOG_DBG("FNT", "No system font configured, UI uses Pretendard only");
+    return false;
+  }
+
+  const char* fontPath = SETTINGS.systemFontPath;
+  LOG_DBG("FNT", "Loading system font: %s", fontPath);
+
+  if (!Storage.exists(fontPath)) {
+    LOG_ERR("FNT", "System font file not found: %s", fontPath);
+    SETTINGS.systemFontPath[0] = '\0';
+    SETTINGS.saveToFile();
+    return false;
+  }
+
+  if (trySdFontLoad(gfxRenderer, SYSTEM_FONT_ID, "SystemFont", fontPath)) {
+    // Back every UI slot with the system font. All UI font IDs alias the same
+    // registered family, so wiring UI_FONT_ID covers the whole UI.
+    gfxRenderer.setGlyphFallback(UI_FONT_ID, SYSTEM_FONT_ID);
+    LOG_DBG("FNT", "System font loaded and wired as UI glyph fallback");
+    return true;
+  }
+
+  LOG_ERR("FNT", "Failed to load system font, clearing setting");
+  SETTINGS.systemFontPath[0] = '\0';
+  SETTINGS.saveToFile();
+  return false;
+}
+
+// Reload UI system font - removes old SD system font and loads the configured one.
+// Call this when the system-font setting changes to apply immediately without reboot.
+bool reloadSystemFont() {
+  LOG_DBG("FNT", "Reloading system font...");
+
+  // Detach the fallback first so the UI font never points at a font we are about to free.
+  renderer.clearGlyphFallback(UI_FONT_ID);
+
+  if (renderer.hasFont(SYSTEM_FONT_ID)) {
+    renderer.removeFont(SYSTEM_FONT_ID);
+    LOG_DBG("FNT", "Removed previous system font");
+  }
+
+  return loadSystemFont(renderer);
+}
+
 // Get reference to global renderer (for font operations from other modules)
 GfxRenderer& getGlobalRenderer() { return renderer; }
 
@@ -243,6 +293,10 @@ void setupDisplayAndFonts() {
 
   // Set fallback font to Pretendard UI
   renderer.setFallbackFont(UI_FONT_ID);
+
+  // Load the optional UI system font from SD and wire it as the UI glyph-level fallback
+  // (lets Hanja/Kana book titles render even though Pretendard is Hangul/Latin only).
+  loadSystemFont(renderer);
 
   // SD card fonts loading disabled due to memory constraints
   loadSdFonts(renderer);

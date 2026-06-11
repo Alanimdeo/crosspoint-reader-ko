@@ -13,6 +13,8 @@ class EpdFontFamily {
   void getTextDimensions(const char* string, int* w, int* h, Style style = REGULAR) const;
   const EpdFontData* getData(Style style = REGULAR) const;
   const EpdGlyph* getGlyph(uint32_t cp, Style style = REGULAR) const;
+  // Returns true only if the font actually contains a real glyph for cp (no replacement fallback).
+  bool hasGlyph(uint32_t cp, Style style = REGULAR) const { return getFont(style)->hasGlyph(cp); }
   bool hasPrintableChars(const char* string, Style style = REGULAR) const;
 
   // Check if bold variant is available (for synthetic bold decision)

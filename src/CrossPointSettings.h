@@ -206,6 +206,9 @@ class CrossPointSettings {
   uint8_t embeddedStyle = 1;
   // Custom reader font path (empty means use default KoPub Batang font)
   char customFontPath[64] = "";
+  // UI "system font" path loaded from SD card (empty means Pretendard only).
+  // Used as a glyph-level fallback for the UI font so titles/menus can show Hanja/Kana.
+  char systemFontPath[64] = "";
   // Character-level line wrapping for Korean text (breaks at any character, not just spaces)
   uint8_t characterWrap = 1;
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
@@ -221,6 +224,11 @@ class CrossPointSettings {
   bool hasCustomFont() const { return customFontPath[0] != '\0'; }
   // Get custom font name (extracted from path)
   const char* getCustomFontName() const;
+
+  // Check if a UI system font is set
+  bool hasSystemFont() const { return systemFontPath[0] != '\0'; }
+  // Get system font name (extracted from path); returns the default label when unset
+  const char* getSystemFontName() const;
 
   // Get singleton instance
   static CrossPointSettings& getInstance() { return instance; }

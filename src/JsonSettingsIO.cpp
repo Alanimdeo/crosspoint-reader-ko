@@ -121,8 +121,9 @@ bool JsonSettingsIO::saveSettings(const CrossPointSettings& s, const char* path)
   doc["frontButtonLeft"] = s.frontButtonLeft;
   doc["frontButtonRight"] = s.frontButtonRight;
 
-  // Korean-specific: customFontPath is managed by FontSelectionActivity, not SettingsList.
+  // Korean-specific: customFontPath/systemFontPath are managed by FontSelectionActivity, not SettingsList.
   doc["customFontPath"] = s.customFontPath;
+  doc["systemFontPath"] = s.systemFontPath;
 
   String json;
   serializeJson(doc, json);
@@ -203,10 +204,14 @@ bool JsonSettingsIO::loadSettings(CrossPointSettings& s, const char* json, bool*
       clamp(doc["frontButtonRight"] | (uint8_t)S::FRONT_HW_RIGHT, S::FRONT_BUTTON_HARDWARE_COUNT, S::FRONT_HW_RIGHT);
   CrossPointSettings::validateFrontButtonMapping(s);
 
-  // Korean-specific: customFontPath is managed by FontSelectionActivity, not SettingsList.
+  // Korean-specific: customFontPath/systemFontPath are managed by FontSelectionActivity, not SettingsList.
   const char* fontPath = doc["customFontPath"] | "";
   strncpy(s.customFontPath, fontPath, sizeof(s.customFontPath) - 1);
   s.customFontPath[sizeof(s.customFontPath) - 1] = '\0';
+
+  const char* sysFontPath = doc["systemFontPath"] | "";
+  strncpy(s.systemFontPath, sysFontPath, sizeof(s.systemFontPath) - 1);
+  s.systemFontPath[sizeof(s.systemFontPath) - 1] = '\0';
 
   LOG_DBG("CPS", "Settings loaded from file");
 

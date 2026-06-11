@@ -76,6 +76,13 @@ class GfxRenderer {
   void insertSdFont(int fontId, SdFontFamily* font);
   // Set fallback font ID (used when requested font is not found)
   void setFallbackFont(int fontId) { fallbackFontId = fontId; }
+  // Glyph-level fallback: when targetFontId lacks a real glyph for a codepoint, that glyph is
+  // rendered from fallbackFontId instead. Used to back the Hangul/Latin UI font with a
+  // user-selected SD "system font" for Hanja/Kana. Both fonts must already be registered.
+  // Returns false if either font is not found.
+  bool setGlyphFallback(int targetFontId, int fallbackFontId);
+  // Remove a previously-set glyph-level fallback from targetFontId.
+  void clearGlyphFallback(int targetFontId);
   // Check if a font is registered
   bool hasFont(int fontId) const { return fontMap.find(fontId) != fontMap.end(); }
   // Remove a font from the registry (frees memory for SD fonts)

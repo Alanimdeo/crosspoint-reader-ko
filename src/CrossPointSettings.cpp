@@ -361,3 +361,21 @@ const char* CrossPointSettings::getCustomFontName() const {
   }
   return nameBuffer;
 }
+
+const char* CrossPointSettings::getSystemFontName() const {
+  if (!hasSystemFont()) {
+    return "Pretendard (기본)";
+  }
+  // Extract filename from path (e.g., "/fonts/NotoCJK.epdfont" -> "NotoCJK")
+  const char* lastSlash = strrchr(systemFontPath, '/');
+  const char* filename = lastSlash ? lastSlash + 1 : systemFontPath;
+  // Remove extension for display
+  static char nameBuffer[32];
+  strncpy(nameBuffer, filename, sizeof(nameBuffer) - 1);
+  nameBuffer[sizeof(nameBuffer) - 1] = '\0';
+  char* dot = strrchr(nameBuffer, '.');
+  if (dot) {
+    *dot = '\0';
+  }
+  return nameBuffer;
+}

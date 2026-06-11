@@ -12,3 +12,8 @@
 
 // Custom reader font loaded from SD card
 #define CUSTOM_FONT_ID (-999999)
+
+// User-selectable UI "system font" loaded from SD card.
+// Registered as the glyph-level fallback for the Pretendard UI font so book titles
+// and menus can render Hanja/Kana glyphs that Pretendard (Hangul + Latin only) lacks.
+#define SYSTEM_FONT_ID (-888888)
