@@ -1,6 +1,6 @@
 _language_name: "한국어"
 _language_code: "KOREAN"
-_order: "11"
+_order: "12"
 
 STR_CROSSPOINT: "CrossPoint"
 STR_BOOTING: "시작 중"
@@ -388,3 +388,5 @@ STR_FIRMWARE_WRITE_FAILED: "펌웨어 쓰기 실패"
 STR_FIRMWARE_UPDATE_DO_NOT_POWER_OFF: "전원을 끄지 마세요!"
 STR_RECOVERY_MODE: "복구 모드"
 STR_RECOVERY_MODE_HINT: "SD 카드에 펌웨어 .bin 파일을 넣고 선택하세요"
+
+

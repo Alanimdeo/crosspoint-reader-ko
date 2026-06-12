@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "CrossPointSettings.h"
+#include "SdCardFontSystem.h"
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
 
@@ -22,9 +23,8 @@ enum class SettingAction {
   CheckForUpdates,
   SdFirmwareUpdate,
   Language,
-  FontSelection,
-  SystemFontSelection,
   SelectSleepScreens,
+  DownloadFonts,
 };
 
 struct SettingInfo {
@@ -32,6 +32,7 @@ struct SettingInfo {
   SettingType type;
   uint8_t CrossPointSettings::* valuePtr = nullptr;
   std::vector<StrId> enumValues;
+  std::vector<std::string> enumStringValues;  // runtime alternative to StrId enumValues (for SD card fonts etc.)
   SettingAction action = SettingAction::None;
 
   struct ValueRange {
@@ -145,6 +146,7 @@ struct SettingInfo {
 
 class SettingsActivity final : public Activity {
   ButtonNavigator buttonNavigator;
+  SdCardFontSystem sdFontSystem;
 
   int selectedCategoryIndex = 0;  // Currently selected category
   int selectedSettingIndex = 0;
@@ -157,11 +159,17 @@ class SettingsActivity final : public Activity {
   std::vector<SettingInfo> systemSettings;
   const std::vector<SettingInfo>* currentSettings = nullptr;
 
+  bool preserveQuickResumeTimeoutOn = false;
+  bool quickResumeTimeoutAutoEnabled = false;
+
   static constexpr int categoryCount = 4;
   static const StrId categoryNames[categoryCount];
 
   void enterCategory(int categoryIndex);
   void toggleCurrentSetting();
+  void openSleepTimeoutPicker();
+  void rebuildSettingsLists();
+  void syncQuickResumeTimeoutForSleepScreen(bool sleepScreenChanged, bool quickResumeTimeoutChanged);
 
  public:
   explicit SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
