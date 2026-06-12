@@ -97,7 +97,7 @@ void FontSelectionActivity::taskTrampoline(void* param) {
   self->displayTaskLoop();
 }
 
-void FontSelectionActivity::scanFontsInDirectory(const char* dirPath) {
+void FontSelectionActivity::scanFontsInDirectory(const char* dirPath, bool recurseIntoSubdirs) {
   HalFile dir = Storage.open(dirPath);
   if (!dir) {
     LOG_DBG("FNT", "Font folder %s not found", dirPath);
@@ -110,29 +110,34 @@ void FontSelectionActivity::scanFontsInDirectory(const char* dirPath) {
     return;
   }
 
-  // List all .epdfont files
+  // Scan for .cpfont files here, and one level into family subfolders. The upstream
+  // layout places each file at /fonts/<Family>/<Family>_<size>.cpfont, so we must look
+  // inside per-family subfolders; flat files directly in dirPath are also accepted.
   while (true) {
     HalFile file = dir.openNextFile();
     if (!file) break;
-    if (!file.isDirectory()) {
-      char filename[64];
-      file.getName(filename, sizeof(filename));
+    char name[64];
+    file.getName(name, sizeof(name));
+    const bool isDir = file.isDirectory();
+    file.close();  // close before recursing/continuing (serialize SD handle use)
 
-      // Accept .cpfont v4 files (the format SdCardFont::load reads); skip macOS hidden files (._*)
-      const size_t len = strlen(filename);
-      if (len > 7 && strcasecmp(filename + len - 7, ".cpfont") == 0 && strncmp(filename, "._", 2) != 0) {
-        // Build full path
-        std::string fullPath = std::string(dirPath) + "/" + filename;
-        fontFiles.push_back(fullPath);
-
-        // Extract name without extension for display
-        std::string displayName(filename, len - 7);
-        fontNames.push_back(displayName);
-
-        LOG_DBG("FNT", "Found font: %s", fullPath.c_str());
+    if (isDir) {
+      // Recurse exactly one level into a family subfolder. Skip hidden/system entries.
+      if (recurseIntoSubdirs && name[0] != '.' && strncmp(name, "._", 2) != 0) {
+        std::string subPath = std::string(dirPath) + "/" + name;
+        scanFontsInDirectory(subPath.c_str(), false);
       }
+      continue;
     }
-    file.close();
+
+    // Accept .cpfont v4 files (the format SdCardFont::load reads); skip macOS hidden files (._*)
+    const size_t len = strlen(name);
+    if (len > 7 && strcasecmp(name + len - 7, ".cpfont") == 0 && strncmp(name, "._", 2) != 0) {
+      std::string fullPath = std::string(dirPath) + "/" + name;
+      fontFiles.push_back(fullPath);
+      fontNames.push_back(std::string(name, len - 7));  // display name without extension
+      LOG_DBG("FNT", "Found font: %s", fullPath.c_str());
+    }
   }
   dir.close();
 }
@@ -150,11 +155,12 @@ void FontSelectionActivity::loadFontList() {
   Storage.mkdir("/.crosspoint");
   Storage.mkdir(FONTS_DIR);
 
-  // Scan fonts from /.crosspoint/fonts
+  // Scan /.crosspoint/fonts, the visible /fonts root, and the hidden /.fonts root.
+  // Each scan also descends one level into per-family subfolders (the upstream layout:
+  // /fonts/<Family>/<Family>_<size>.cpfont, or /.fonts/<Family>/... when hidden).
   scanFontsInDirectory(FONTS_DIR);
-
-  // Also scan fonts from /fonts (root folder)
   scanFontsInDirectory(ROOT_FONTS_DIR);
+  scanFontsInDirectory(HIDDEN_FONTS_DIR);
 
   LOG_DBG("FNT", "Total fonts found: %zu (including default)", fontFiles.size());
 
