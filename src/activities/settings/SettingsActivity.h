@@ -25,6 +25,8 @@ enum class SettingAction {
   Language,
   SelectSleepScreens,
   DownloadFonts,
+  FontSelection,        // Korean: pick the EPUB reader font from SD card
+  SystemFontSelection,  // Korean: pick the UI system font from SD card
 };
 
 struct SettingInfo {

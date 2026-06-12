@@ -57,6 +57,13 @@ class GfxRenderer {
   // fontCacheManager_ below.
   mutable std::map<int, SdCardFont*> sdCardFonts_;
 
+  // Korean fork UI "system font" glyph-level fallback. When a user picks an SD font as the
+  // UI font, it is registered in the UI font slot; codepoints it lacks (e.g. Hangul on a
+  // Latin SD font) are rendered from glyphFallbackTo_ (Pretendard) instead of a tofu box.
+  // Both 0 = no fallback. Set/cleared via setGlyphFallback()/clearGlyphFallback().
+  int glyphFallbackFrom_ = 0;
+  int glyphFallbackTo_ = 0;
+
   // Mutable because drawText() is const but needs to delegate scan-mode
   // recording to the (non-const) FontCacheManager. Same pragmatic compromise
   // as before, concentrated in a single pointer instead of four fields.
@@ -111,6 +118,27 @@ class GfxRenderer {
   void clearSdCardFonts() { sdCardFonts_.clear(); }
   const std::map<int, SdCardFont*>& getSdCardFonts() const { return sdCardFonts_; }
   bool isSdCardFont(int fontId) const { return sdCardFonts_.count(fontId) > 0; }
+  bool hasFont(int fontId) const { return fontMap.find(fontId) != fontMap.end(); }
+  // Korean fork UI system-font glyph fallback: when rendering/measuring `fromId`, codepoints it
+  // lacks a real glyph for are taken from `toId` instead. No-op while fromId is 0.
+  void setGlyphFallback(int fromId, int toId) {
+    glyphFallbackFrom_ = fromId;
+    glyphFallbackTo_ = toId;
+  }
+  void clearGlyphFallback() {
+    glyphFallbackFrom_ = 0;
+    glyphFallbackTo_ = 0;
+  }
+  // Choose the font family to render/measure codepoint `cp` for `fontId`: the primary `font`,
+  // unless glyph fallback is active for fontId and the primary lacks a real glyph for cp.
+  const EpdFontFamily& resolveGlyphFont(int fontId, const EpdFontFamily& font, uint32_t cp,
+                                        EpdFontFamily::Style style) const {
+    if (glyphFallbackFrom_ != 0 && fontId == glyphFallbackFrom_ && !font.hasGlyph(cp, style)) {
+      const auto it = fontMap.find(glyphFallbackTo_);
+      if (it != fontMap.end() && it->second.hasGlyph(cp, style)) return it->second;
+    }
+    return font;
+  }
   // Ensure SD card font glyph data is loaded for the given text. Called from layout code
   // (which holds a const GfxRenderer&) before measuring word widths. Safe to call on non-SD fonts (no-op).
   // styleMask: bitmask of styles to prepare (bit 0=regular, 1=bold, 2=italic, 3=bold-italic).

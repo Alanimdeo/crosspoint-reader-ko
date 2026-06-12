@@ -13,6 +13,7 @@
 #ifndef CP_DISABLE_SD_CARD_FONTS
 #include "FontDownloadActivity.h"
 #endif
+#include "FontSelectionActivity.h"
 #include "KOReaderSettingsActivity.h"
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
@@ -66,6 +67,11 @@ void SettingsActivity::rebuildSettingsLists() {
   // Sleep image selection sits under Display because it controls what shows
   // when the device sleeps in Custom or Cover+Custom mode.
   displaySettings.push_back(SettingInfo::Action(StrId::STR_SELECT_SLEEP_SCREENS, SettingAction::SelectSleepScreens));
+  // Korean: UI "system font" picker (loads an SD font as the primary UI font, Pretendard fallback).
+  displaySettings.push_back(SettingInfo::Action(StrId::STR_SYSTEM_FONT, SettingAction::SystemFontSelection));
+  // Korean: EPUB reader font picker (loads an SD font under CUSTOM_FONT_ID, else KoPub Batang).
+  readerSettings.insert(readerSettings.begin(),
+                        SettingInfo::Action(StrId::STR_FONT_FAMILY, SettingAction::FontSelection));
   controlsSettings.insert(controlsSettings.begin(),
                           SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS, SettingAction::RemapFrontButtons));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
@@ -282,6 +288,21 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::SelectSleepScreens:
         startActivityForResult(std::make_unique<SleepImageSelectionActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::FontSelection:
+        startActivityForResult(std::make_unique<FontSelectionActivity>(renderer, mappedInput),
+                               [this](const ActivityResult&) {
+                                 SETTINGS.saveToFile();
+                                 rebuildSettingsLists();
+                               });
+        break;
+      case SettingAction::SystemFontSelection:
+        startActivityForResult(
+            std::make_unique<FontSelectionActivity>(renderer, mappedInput, FontSelectionActivity::Target::System),
+            [this](const ActivityResult&) {
+              SETTINGS.saveToFile();
+              rebuildSettingsLists();
+            });
         break;
       case SettingAction::None:
         // Do nothing

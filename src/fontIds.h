@@ -20,6 +20,10 @@
 // uses Pretendard only.
 #define SYSTEM_FONT_ID (-888888)
 
+// Pretendard kept as the glyph-level fallback while a system font is the active UI font.
+// Registered unconditionally so resolveGlyphFont can pull missing glyphs from it.
+#define UI_FALLBACK_FONT_ID (-777777)
+
 // --- Upstream built-in reader font IDs (kept so upstream render/settings code compiles).
 // The Korean build does not load these font objects; the reader uses KoPub Batang / a custom
 // SD font instead (see CrossPointSettings::getReaderFontId and src/main.cpp font loading).
@@ -43,3 +47,4 @@ static_assert(NOTOSANS_14_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_16_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_18_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(UI_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(UI_FALLBACK_FONT_ID != 0, "Font ID collision with sentinel");

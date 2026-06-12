@@ -55,9 +55,13 @@ so a device that had saved a now-removed language simply falls back to Korean.
 |-------|---------------|------------|
 | merge result, 26 languages, all features | 6,701,856 | +148,256 over |
 | + SD Card Fonts web/UI compiled out | 6,694,496 | +140,896 over |
-| + EN/KO only (`gh_release`) | 6,506,240 | 47,360 under |
+| + EN/KO only | 6,506,240 | 47,360 under |
+| + KO custom/system SD fonts restored (`gh_release`) | 6,512,224 | 41,376 under |
 
-Headroom is ~46 KB. Any sizeable new feature will push `firmware.bin` back over
+The Korean custom reader font + UI system font (glyph-fallback to Pretendard) ride on upstream's
+`SdCardFont` engine (`.cpfont` v4), so re-adding them cost only ~6 KB.
+
+Headroom is ~41 KB. Any sizeable new feature will push `firmware.bin` back over
 the limit. Before adding flash-resident data, rebuild `gh_release` and check
 `firmware.bin` against 6,553,600 bytes. If more room is needed, the next levers
 are excluding X3-only code (tilt/gyro/NTP, currently always linked) or reducing

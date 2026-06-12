@@ -400,7 +400,12 @@ int CrossPointSettings::getRefreshFrequency() const {
   }
 }
 
-int CrossPointSettings::getReaderFontId() const { return KOPUB_14_FONT_ID; }
+int CrossPointSettings::getReaderFontId() const {
+  // When a custom SD reader font is set, the reader must render with the same id the font was
+  // registered under (CUSTOM_FONT_ID). CUSTOM_FONT_ID is also the cache-invalidation key, so
+  // switching custom fonts naturally invalidates section caches. Otherwise the built-in KoPub.
+  return hasCustomFont() ? CUSTOM_FONT_ID : KOPUB_14_FONT_ID;
+}
 
 int CrossPointSettings::getUiFontId() const {
   // Fixed to Pretendard 10pt

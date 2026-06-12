@@ -374,6 +374,13 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
   std::string visual;
   const char* renderedText = resolveVisualText(text, visual, baseDir);
 
+  // When UI system-font glyph fallback is active for this font, measure per-glyph (the same path
+  // getTextAdvanceX/drawText use with resolveGlyphFont) so the width matches what is rendered.
+  // Otherwise use the font's fast whole-string measurement.
+  if (glyphFallbackFrom_ != 0 && fontId == glyphFallbackFrom_) {
+    return getTextAdvanceX(fontId, renderedText, style);
+  }
+
   int w = 0, h = 0;
   fontIt->second.getTextDimensions(renderedText, &w, &h, style);
   return w;
@@ -444,7 +451,10 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       lastBaseX += fp4::toPixel(prevAdvanceFP + kernFP);       // snap 12.4 fixed-point to nearest pixel
     }
 
-    const EpdGlyph* glyph = font.getGlyph(cp, style);
+    // UI system-font glyph fallback: render this codepoint from Pretendard when the active
+    // UI SD font lacks it. No-op (returns `font`) for the reader and when no fallback is set.
+    const EpdFontFamily& gfont = resolveGlyphFont(fontId, font, cp, style);
+    const EpdGlyph* glyph = gfont.getGlyph(cp, style);
 
     lastBaseLeft = glyph ? glyph->left : 0;
     lastBaseWidth = glyph ? glyph->width : 0;
@@ -460,9 +470,9 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
 
     if (isSupSub) {
       // yPos already carries the vertical offset applied by TextBlock::render().
-      renderCharScaled(*this, renderMode, font, cp, lastBaseX, yPos, black, style);
+      renderCharScaled(*this, renderMode, gfont, cp, lastBaseX, yPos, black, style);
     } else {
-      renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, lastBaseX, yPos, black, style);
+      renderCharImpl<TextRotation::None>(*this, renderMode, gfont, cp, lastBaseX, yPos, black, style);
     }
     prevCp = cp;
   }
@@ -1468,7 +1478,8 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
       widthPx += fp4::toPixel(prevAdvanceFP + kernFP);         // snap 12.4 fixed-point to nearest pixel
     }
 
-    const EpdGlyph* glyph = font.getGlyph(cp, style);
+    // UI system-font glyph fallback: measure with the same font drawText will render with.
+    const EpdGlyph* glyph = resolveGlyphFont(fontId, font, cp, style).getGlyph(cp, style);
     prevAdvanceFP = glyph ? glyph->advanceX : 0;
     if ((style & (EpdFontFamily::SUP | EpdFontFamily::SUB)) != 0) {
       prevAdvanceFP = (prevAdvanceFP + 1) / 2;
@@ -1558,14 +1569,17 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
       lastBaseY -= fp4::toPixel(prevAdvanceFP + kernFP);       // snap 12.4 fixed-point to nearest pixel
     }
 
-    const EpdGlyph* glyph = font.getGlyph(cp, style);
+    // UI system-font glyph fallback: render this codepoint from Pretendard when the active
+    // UI SD font lacks it. No-op (returns `font`) for the reader and when no fallback is set.
+    const EpdFontFamily& gfont = resolveGlyphFont(fontId, font, cp, style);
+    const EpdGlyph* glyph = gfont.getGlyph(cp, style);
 
     lastBaseLeft = glyph ? glyph->left : 0;
     lastBaseWidth = glyph ? glyph->width : 0;
     lastBaseTop = glyph ? glyph->top : 0;
     prevAdvanceFP = glyph ? glyph->advanceX : 0;  // 12.4 fixed-point
 
-    renderCharImpl<TextRotation::Rotated90CW>(*this, renderMode, font, cp, x, lastBaseY, black, style);
+    renderCharImpl<TextRotation::Rotated90CW>(*this, renderMode, gfont, cp, x, lastBaseY, black, style);
     prevCp = cp;
   }
 }
