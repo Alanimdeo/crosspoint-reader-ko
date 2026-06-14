@@ -2,6 +2,7 @@
 
 #include <EpdFontFamily.h>
 #include <HalDisplay.h>
+#include <SdFontFamily.h>
 
 namespace BidiUtils {
 // Paragraph base direction for the Unicode BiDi algorithm (UAX#9).
@@ -12,10 +13,10 @@ enum class BidiBaseDir : signed char { AUTO = -1, LTR = 0, RTL = 1 };
 }  // namespace BidiUtils
 
 class FontCacheManager;
-class SdCardFont;
 
 #include <cstring>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -50,23 +51,20 @@ class GfxRenderer {
   uint16_t panelWidthBytes = HalDisplay::DISPLAY_WIDTH_BYTES;
   uint32_t frameBufferSize = HalDisplay::BUFFER_SIZE;
   std::vector<uint8_t*> bwBufferChunks;
-  std::map<int, EpdFontFamily> fontMap;
-  // Mutable because ensureSdCardFontReady() is const (called from layout code
-  // that holds a const GfxRenderer&) but triggers SD card reads and heap
-  // allocation inside the SdCardFont objects. Same pragmatic compromise as
-  // fontCacheManager_ below.
-  mutable std::map<int, SdCardFont*> sdCardFonts_;
-
-  // Korean fork UI "system font" glyph-level fallback. When a user picks an SD font as the
-  // UI font, it is registered in the UI font slot; codepoints it lacks (e.g. Hangul on a
-  // Latin SD font) are rendered from glyphFallbackTo_ (Pretendard) instead of a tofu box.
-  // Both 0 = no fallback. Set/cleared via setGlyphFallback()/clearGlyphFallback().
-  int glyphFallbackFrom_ = 0;
-  int glyphFallbackTo_ = 0;
+  // Unified font registry: each slot wraps either a flash EpdFontFamily (non-owning) or an
+  // owned SD-card SdFontFamily, so both render through one path. UnifiedFontFamily also carries
+  // an optional glyph-level fallback (Hangul/Latin UI font backed by an SD "system font").
+  std::map<int, std::unique_ptr<UnifiedFontFamily>> fontMap;
+  int fallbackFontId = 0;  // Default fallback font ID (set after fonts are loaded)
+  // UI system-font redirect: requests for fontRedirectFrom_ resolve to fontRedirectTo_ in
+  // getEffectiveFontId(). Used to replace the whole UI font with a user-selected SD "system
+  // font" while keeping the original UI font registered (as that font's glyph fallback).
+  // 0 = inactive. Two scalars instead of a map to avoid any heap allocation.
+  int fontRedirectFrom_ = 0;
+  int fontRedirectTo_ = 0;
 
   // Mutable because drawText() is const but needs to delegate scan-mode
-  // recording to the (non-const) FontCacheManager. Same pragmatic compromise
-  // as before, concentrated in a single pointer instead of four fields.
+  // recording to the (non-const) FontCacheManager.
   mutable FontCacheManager* fontCacheManager_ = nullptr;
 
   // Tiled grayscale strip target. When active, drawPixel()/clearScreen()
@@ -81,8 +79,9 @@ class GfxRenderer {
   mutable int _stripRows = 0;
   mutable bool _stripActive = false;
 
-  void renderChar(const EpdFontFamily& fontFamily, uint32_t cp, int* x, int* y, bool pixelState,
-                  EpdFontFamily::Style style) const;
+  // Shared implementation behind both drawText overloads (with/without Korean letter-spacing).
+  void drawTextImpl(int fontId, int x, int y, const char* text, int8_t letterSpacing, bool black,
+                    EpdFontFamily::Style style, BidiUtils::BidiBaseDir baseDir) const;
   void freeBwBufferChunks();
   template <Color color>
   void drawPixelDither(int x, int y) const;
@@ -101,50 +100,45 @@ class GfxRenderer {
 
   // Setup
   void begin();  // must be called right after display.begin()
-  void insertFont(int fontId, EpdFontFamily font);
-  // Clears both the flash-font map and any SD-font registration for fontId.
-  // Coupled to avoid dangling SdCardFont* in sdCardFonts_ when callers free
-  // the underlying SdCardFont and forget the SD-side unregister.
-  void removeFont(int fontId) {
-    fontMap.erase(fontId);
-    sdCardFonts_.erase(fontId);
+
+  // Font registry (Korean API — supports both flash and SD-card fonts)
+  // Flash fonts (EpdFontFamily) - stores pointer to global font
+  void insertFont(int fontId, const EpdFontFamily* font);
+  // SD card fonts (SdFontFamily) - takes ownership
+  void insertSdFont(int fontId, SdFontFamily* font);
+  // Set fallback font ID (used when requested font is not found)
+  void setFallbackFont(int fontId) { fallbackFontId = fontId; }
+  // Glyph-level fallback: when targetFontId lacks a real glyph for a codepoint, that glyph is
+  // rendered from fallbackFontId instead. Used to back the Hangul/Latin UI font with a
+  // user-selected SD "system font" for Hanja/Kana. Both fonts must already be registered.
+  // Returns false if either font is not found.
+  bool setGlyphFallback(int targetFontId, int fallbackFontId);
+  // Remove a previously-set glyph-level fallback from targetFontId.
+  void clearGlyphFallback(int targetFontId);
+  // Whole-font redirect: text requests for fromId resolve to toId (see getEffectiveFontId).
+  // Used to swap the entire UI font over to a user-selected SD "system font" while keeping the
+  // original UI font registered as that font's glyph-level fallback. Both ids should be registered.
+  void setFontRedirect(int fromId, int toId) {
+    fontRedirectFrom_ = fromId;
+    fontRedirectTo_ = toId;
   }
+  // Remove the whole-font redirect (UI reverts to its native font).
+  void clearFontRedirect() {
+    fontRedirectFrom_ = 0;
+    fontRedirectTo_ = 0;
+  }
+  // Check if a font is registered
+  bool hasFont(int fontId) const { return fontMap.find(fontId) != fontMap.end(); }
+  // Remove a font from the registry (frees memory for SD fonts)
+  bool removeFont(int fontId);
+  // Get effective font ID (returns redirect target / fallback if requested font not found)
+  int getEffectiveFontId(int fontId) const;
+
+  // FontCacheManager integration (upstream)
   void setFontCacheManager(FontCacheManager* m) { fontCacheManager_ = m; }
   FontCacheManager* getFontCacheManager() const { return fontCacheManager_; }
   bool isFontCacheScanning() const;
-  const std::map<int, EpdFontFamily>& getFontMap() const { return fontMap; }
-  void registerSdCardFont(int fontId, SdCardFont* font) { sdCardFonts_[fontId] = font; }
-  void unregisterSdCardFont(int fontId) { removeFont(fontId); }
-  void clearSdCardFonts() { sdCardFonts_.clear(); }
-  const std::map<int, SdCardFont*>& getSdCardFonts() const { return sdCardFonts_; }
-  bool isSdCardFont(int fontId) const { return sdCardFonts_.count(fontId) > 0; }
-  bool hasFont(int fontId) const { return fontMap.find(fontId) != fontMap.end(); }
-  // Korean fork UI system-font glyph fallback: when rendering/measuring `fromId`, codepoints it
-  // lacks a real glyph for are taken from `toId` instead. No-op while fromId is 0.
-  void setGlyphFallback(int fromId, int toId) {
-    glyphFallbackFrom_ = fromId;
-    glyphFallbackTo_ = toId;
-  }
-  void clearGlyphFallback() {
-    glyphFallbackFrom_ = 0;
-    glyphFallbackTo_ = 0;
-  }
-  // Choose the font family to render/measure codepoint `cp` for `fontId`: the primary `font`,
-  // unless glyph fallback is active for fontId and the primary lacks a real glyph for cp.
-  const EpdFontFamily& resolveGlyphFont(int fontId, const EpdFontFamily& font, uint32_t cp,
-                                        EpdFontFamily::Style style) const {
-    if (glyphFallbackFrom_ != 0 && fontId == glyphFallbackFrom_ && !font.hasGlyph(cp, style)) {
-      const auto it = fontMap.find(glyphFallbackTo_);
-      if (it != fontMap.end() && it->second.hasGlyph(cp, style)) return it->second;
-    }
-    return font;
-  }
-  // Ensure SD card font glyph data is loaded for the given text. Called from layout code
-  // (which holds a const GfxRenderer&) before measuring word widths. Safe to call on non-SD fonts (no-op).
-  // styleMask: bitmask of styles to prepare (bit 0=regular, 1=bold, 2=italic, 3=bold-italic).
-  void ensureSdCardFontReady(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F) const;
-  void ensureSdCardFontReady(int fontId, const std::vector<std::string>& words, bool includeHyphen,
-                             uint8_t styleMask = 0x0F) const;
+  const std::map<int, std::unique_ptr<UnifiedFontFamily>>& getFontMap() const { return fontMap; }
 
   // Orientation control (affects logical width/height and coordinate transforms)
   void setOrientation(const Orientation o) { orientation = o; }
@@ -220,6 +214,9 @@ class GfxRenderer {
   void drawText(int fontId, int x, int y, const char* text, bool black = true,
                 EpdFontFamily::Style style = EpdFontFamily::REGULAR,
                 BidiUtils::BidiBaseDir baseDir = BidiUtils::BidiBaseDir::AUTO) const;
+  // Korean letter-spacing overload (invariant).
+  void drawText(int fontId, int x, int y, const char* text, int8_t letterSpacing, bool black = true,
+                EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   int getSpaceWidth(int fontId, EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   /// Returns the total inter-word advance: fp4::toPixel(spaceAdvance + kern(leftCp,' ') + kern(' ',rightCp)).
   /// Using a single snap avoids the +/-1 px rounding error that arises when space advance and kern are

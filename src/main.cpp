@@ -13,7 +13,7 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <SPI.h>
-#include <SdCardFont.h>
+#include <SdFontFamily.h>
 #include <WiFi.h>
 #include <builtinFonts/all.h>
 
@@ -26,7 +26,6 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
-#include "SdCardFontSystem.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
@@ -40,12 +39,7 @@ MappedInputManager mappedInputManager(gpio);
 GfxRenderer renderer(display);
 ActivityManager activityManager(renderer, mappedInputManager);
 FontDecompressor fontDecompressor;
-// Upstream SD-card-font system. The Korean build does not surface it in the device UI
-// (the KO SD custom/system font feature was removed and "Manage Fonts" is hidden), but the
-// object must exist because the web server (font upload/list endpoints) and ReaderActivity
-// reference the global. Its registry stays empty unless fonts are added over the web UI.
-SdCardFontSystem sdFontSystem;
-FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts());
+FontCacheManager fontCacheManager(renderer.getFontMap());
 static unsigned long allowSleepAt = 0;
 
 // UI Font (Pretendard 10pt) - Regular only, synthetic bold applied by renderer
@@ -56,86 +50,153 @@ EpdFontFamily uiFontFamily(&pretendard10RegularFont);
 EpdFont kopub14RegularFont(&kopub_14_regular);
 EpdFontFamily kopub14FontFamily(&kopub14RegularFont);
 
-// SD-card fonts loaded via the upstream SdCardFont engine. SdCardFont is non-copyable and
-// non-movable (owns raw buffers freed in its dtor), so these MUST be file-scope globals that
-// outlive every EpdFontFamily that wraps their EpdFont pointers.
-SdCardFont customReaderSdFont;  // reader font (registered under CUSTOM_FONT_ID)
-SdCardFont systemSdFont;        // UI "system font" (becomes UI_FONT_ID; Pretendard is fallback)
+// Korean fonts loading from SD card is disabled due to memory constraints
+// Font files should be in /.crosspoint/fonts/ directory
+constexpr char FONT_DIR[] = "/.crosspoint/fonts";
+
+// Helper function to safely load an SD font with comprehensive error handling
+// Returns true if loading succeeded
+bool trySdFontLoad(GfxRenderer& renderer, int fontId, const char* name, const char* regularPath,
+                   const char* boldPath = nullptr) {
+  // First check if the file exists before attempting to create SdFontFamily
+  if (!Storage.exists(regularPath)) {
+    LOG_ERR("FNT", "%s not found: %s", name, regularPath);
+    return false;
+  }
+
+  SdFontFamily* font = nullptr;
+  bool success = false;
+
+  // Create font family - use regular new since ESP32 doesn't always support nothrow
+  font = new SdFontFamily(regularPath, boldPath);
+  if (font == nullptr) {
+    LOG_ERR("FNT", "Failed to allocate memory for %s", name);
+    return false;
+  }
+
+  if (font->load()) {
+    renderer.insertSdFont(fontId, font);
+    LOG_DBG("FNT", "Loaded %s from SD", name);
+    success = true;
+  } else {
+    LOG_ERR("FNT", "Failed to load %s", name);
+    delete font;
+  }
+
+  return success;
+}
+
+// Load custom reader font from SD card if configured
+// Returns true if custom font was loaded successfully
+bool loadCustomReaderFont(GfxRenderer& gfxRenderer) {
+  if (!SETTINGS.hasCustomFont()) {
+    LOG_DBG("FNT", "No custom font configured, using default KoPub Batang");
+    return false;
+  }
+
+  const char* fontPath = SETTINGS.customFontPath;
+  LOG_DBG("FNT", "Loading custom font: %s", fontPath);
+
+  if (!Storage.exists(fontPath)) {
+    LOG_ERR("FNT", "Custom font file not found: %s", fontPath);
+    // Clear invalid font path
+    SETTINGS.customFontPath[0] = '\0';
+    SETTINGS.saveToFile();
+    return false;
+  }
+
+  // Try to load the custom font
+  if (trySdFontLoad(gfxRenderer, CUSTOM_FONT_ID, "CustomReaderFont", fontPath)) {
+    LOG_DBG("FNT", "Custom reader font loaded successfully");
+    return true;
+  }
+
+  LOG_ERR("FNT", "Failed to load custom font, clearing setting to use default");
+  // Clear invalid font path so getReaderFontId() returns default font
+  SETTINGS.customFontPath[0] = '\0';
+  SETTINGS.saveToFile();
+  return false;
+}
+
+// Reload custom reader font - removes old font and loads new one
+// Call this when font settings change to apply immediately without reboot
+bool reloadCustomReaderFont() {
+  LOG_DBG("FNT", "Reloading custom reader font...");
+
+  // Remove existing custom font if any
+  if (renderer.hasFont(CUSTOM_FONT_ID)) {
+    renderer.removeFont(CUSTOM_FONT_ID);
+    LOG_DBG("FNT", "Removed previous custom font");
+  }
+
+  // Load new custom font if configured
+  return loadCustomReaderFont(renderer);
+}
+
+// Load the UI system font from SD card (if configured) and make it the primary UI font,
+// with Pretendard kept as its glyph-level fallback. The whole UI (all UI_FONT_ID slots)
+// renders with the SD font; any codepoint the SD font lacks falls back to Pretendard.
+// When no system font is configured (or the user clears it), the UI uses Pretendard only.
+// Returns true if a system font is now active.
+bool loadSystemFont(GfxRenderer& gfxRenderer) {
+  if (!SETTINGS.hasSystemFont()) {
+    LOG_DBG("FNT", "No system font configured, UI uses Pretendard only");
+    return false;
+  }
+
+  const char* fontPath = SETTINGS.systemFontPath;
+  LOG_DBG("FNT", "Loading system font: %s", fontPath);
+
+  if (!Storage.exists(fontPath)) {
+    LOG_ERR("FNT", "System font file not found: %s", fontPath);
+    SETTINGS.systemFontPath[0] = '\0';
+    SETTINGS.saveToFile();
+    return false;
+  }
+
+  if (trySdFontLoad(gfxRenderer, SYSTEM_FONT_ID, "SystemFont", fontPath)) {
+    // SD system font becomes the primary UI font; Pretendard backs it as the glyph-level
+    // fallback for codepoints the SD font lacks. The redirect points every UI_FONT_ID
+    // request (all UI slots alias it) at the SD font slot, so the whole UI switches over.
+    gfxRenderer.setGlyphFallback(SYSTEM_FONT_ID, UI_FONT_ID);
+    gfxRenderer.setFontRedirect(UI_FONT_ID, SYSTEM_FONT_ID);
+    LOG_DBG("FNT", "System font loaded as primary UI font (Pretendard fallback)");
+    return true;
+  }
+
+  LOG_ERR("FNT", "Failed to load system font, clearing setting");
+  SETTINGS.systemFontPath[0] = '\0';
+  SETTINGS.saveToFile();
+  return false;
+}
+
+// Reload UI system font - removes old SD system font and loads the configured one.
+// Call this when the system-font setting changes to apply immediately without reboot.
+// If the user cleared the setting, the UI reverts to Pretendard.
+bool reloadSystemFont() {
+  LOG_DBG("FNT", "Reloading system font...");
+
+  // Drop the redirect first so UI_FONT_ID stops resolving to a font we are about to free,
+  // then detach the SD font's fallback wiring before removing it.
+  renderer.clearFontRedirect();
+  renderer.clearGlyphFallback(SYSTEM_FONT_ID);
+
+  if (renderer.hasFont(SYSTEM_FONT_ID)) {
+    renderer.removeFont(SYSTEM_FONT_ID);
+    LOG_DBG("FNT", "Removed previous system font");
+  }
+
+  return loadSystemFont(renderer);
+}
 
 // Get reference to global renderer (for font operations from other modules)
 GfxRenderer& getGlobalRenderer() { return renderer; }
 
-// Load the user's custom SD reader font into CUSTOM_FONT_ID. Returns true if a custom font is
-// active afterwards. Clears the setting (and persists) when the configured file is missing or
-// fails to load, so a stale path can't wedge the reader.
-static bool loadCustomReaderFont(GfxRenderer& r) {
-  if (!SETTINGS.hasCustomFont()) {
-    return false;
-  }
-  if (!Storage.exists(SETTINGS.customFontPath)) {
-    LOG_ERR("MAIN", "Custom reader font missing: %s", SETTINGS.customFontPath);
-    SETTINGS.customFontPath[0] = '\0';
-    SETTINGS.saveToFile();
-    return false;
-  }
-  if (!customReaderSdFont.load(SETTINGS.customFontPath)) {
-    LOG_ERR("MAIN", "Failed to load custom reader font: %s", SETTINGS.customFontPath);
-    SETTINGS.customFontPath[0] = '\0';
-    SETTINGS.saveToFile();
-    return false;
-  }
-  // Register the SdCardFont so the renderer's glyph-miss handler can stream glyphs on demand,
-  // then expose it as a font family under CUSTOM_FONT_ID (the id getReaderFontId() returns).
-  r.registerSdCardFont(CUSTOM_FONT_ID, &customReaderSdFont);
-  EpdFontFamily fam(customReaderSdFont.getEpdFont(0), customReaderSdFont.getEpdFont(1),
-                    customReaderSdFont.getEpdFont(2), customReaderSdFont.getEpdFont(3));
-  r.insertFont(CUSTOM_FONT_ID, fam);
-  LOG_DBG("MAIN", "Custom reader font loaded: %s", SETTINGS.customFontPath);
-  return true;
-}
-
-bool reloadCustomReaderFont() {
-  if (renderer.hasFont(CUSTOM_FONT_ID)) {
-    renderer.removeFont(CUSTOM_FONT_ID);
-  }
-  return loadCustomReaderFont(renderer);
-}
-
-// Load the user's UI "system font" into UI_FONT_ID, replacing Pretendard as the primary UI font
-// while keeping Pretendard at UI_FALLBACK_FONT_ID as a glyph-level fallback. The system font goes
-// through the fontMap glyph path (NOT registerSdCardFont) so resolveGlyphFont can substitute
-// Pretendard for codepoints the SD font lacks; glyphs still load on demand via the glyph-miss
-// handler the EpdFontData carries. Returns true if a system font is active afterwards.
-static bool loadSystemFont(GfxRenderer& r) {
-  if (!SETTINGS.hasSystemFont()) {
-    return false;
-  }
-  if (!Storage.exists(SETTINGS.systemFontPath)) {
-    LOG_ERR("MAIN", "System font missing: %s", SETTINGS.systemFontPath);
-    SETTINGS.systemFontPath[0] = '\0';
-    SETTINGS.saveToFile();
-    return false;
-  }
-  if (!systemSdFont.load(SETTINGS.systemFontPath)) {
-    LOG_ERR("MAIN", "Failed to load system font: %s", SETTINGS.systemFontPath);
-    SETTINGS.systemFontPath[0] = '\0';
-    SETTINGS.saveToFile();
-    return false;
-  }
-  EpdFontFamily sysFam(systemSdFont.getEpdFont(0), systemSdFont.getEpdFont(1), systemSdFont.getEpdFont(2),
-                       systemSdFont.getEpdFont(3));
-  r.insertFont(UI_FONT_ID, sysFam);
-  r.setGlyphFallback(UI_FONT_ID, UI_FALLBACK_FONT_ID);
-  LOG_DBG("MAIN", "System font loaded: %s", SETTINGS.systemFontPath);
-  return true;
-}
-
-bool reloadSystemFont() {
-  // Revert the UI font to Pretendard first, dropping any active fallback mapping, then re-apply
-  // whatever system font is currently configured (if any).
-  renderer.clearGlyphFallback();
-  renderer.insertFont(UI_FONT_ID, uiFontFamily);
-  return loadSystemFont(renderer);
+// SD font loading is disabled - Korean fonts need to be embedded in flash
+// due to ESP32-C3 memory constraints. SD card loading causes crashes.
+void loadSdFonts(GfxRenderer& /*renderer*/) {
+  // SD font loading disabled - use flash-embedded fonts instead
+  LOG_DBG("FNT", "SD font loading disabled (use flash fonts)");
 }
 
 // measurement of power button press duration calibration value
@@ -316,20 +377,26 @@ void setupDisplayAndFonts(bool seamless = false) {
   // KoPub Batang is the default reader font; Pretendard drives all UI sizes.
 
   // UI font (Pretendard 10pt) - used for all UI sizes in Korean version
-  renderer.insertFont(UI_FONT_ID, uiFontFamily);
-  renderer.insertFont(UI_10_FONT_ID, uiFontFamily);
-  renderer.insertFont(UI_12_FONT_ID, uiFontFamily);
-  renderer.insertFont(SMALL_FONT_ID, uiFontFamily);
+  renderer.insertFont(UI_FONT_ID, &uiFontFamily);
+  renderer.insertFont(UI_10_FONT_ID, &uiFontFamily);
+  renderer.insertFont(UI_12_FONT_ID, &uiFontFamily);
+  renderer.insertFont(SMALL_FONT_ID, &uiFontFamily);
 
-  // Korean EPUB reader font (KoPub Batang 14pt)
-  renderer.insertFont(KOPUB_14_FONT_ID, kopub14FontFamily);
+  // Korean EPUB reader font (KoPub Batang 14pt) - always register as fallback
+  renderer.insertFont(KOPUB_14_FONT_ID, &kopub14FontFamily);
 
-  // Pretendard kept under a dedicated id so a system SD font can fall back to it per-glyph.
-  renderer.insertFont(UI_FALLBACK_FONT_ID, uiFontFamily);
-
-  // Apply user-selected SD fonts (reader + UI system font) if configured.
+  // Try to load custom reader font from SD card
   loadCustomReaderFont(renderer);
+
+  // Set fallback font to Pretendard UI
+  renderer.setFallbackFont(UI_FONT_ID);
+
+  // Load the optional UI system font from SD and wire it as the UI glyph-level fallback
+  // (lets Hanja/Kana book titles render even though Pretendard is Hangul/Latin only).
   loadSystemFont(renderer);
+
+  // SD card fonts loading disabled due to memory constraints
+  loadSdFonts(renderer);
 
   LOG_DBG("MAIN", "Fonts setup complete");
 }

@@ -9,11 +9,10 @@
 #include <string>
 
 class FontDecompressor;
-class SdCardFont;
 
 class FontCacheManager {
  public:
-  FontCacheManager(const std::map<int, EpdFontFamily>& fontMap, const std::map<int, SdCardFont*>& sdCardFonts);
+  explicit FontCacheManager(const std::map<int, std::unique_ptr<UnifiedFontFamily>>& fontMap);
 
   void setFontDecompressor(FontDecompressor* d);
 
@@ -47,8 +46,7 @@ class FontCacheManager {
   PrewarmScope createPrewarmScope();
 
  private:
-  const std::map<int, EpdFontFamily>& fontMap_;
-  const std::map<int, SdCardFont*>& sdCardFonts_;
+  const std::map<int, std::unique_ptr<UnifiedFontFamily>>& fontMap_;
   FontDecompressor* fontDecompressor_ = nullptr;
 
   enum class ScanMode : uint8_t { None, Scanning };

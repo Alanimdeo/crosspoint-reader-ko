@@ -550,16 +550,8 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, bool firstLineIsParagrap
   }
   buffer[chunkSize] = '\0';
 
-  // Prime the SD card font's advance table with this chunk's codepoints.
-  // Without this, every getTextAdvanceX() call in the wrap loop below triggers
-  // on-demand glyph loads through the 8-slot overflow ring buffer, which
-  // thrashes for any text with more than 8 unique chars (i.e. all English),
-  // floods the heap with short-lived bitmap allocations, and eventually
-  // corrupts FreeRTOS state. The advance table persists across calls per
-  // font, so the cost amortizes to ~ASCII-size after the first chunk.
-  if (renderer.isSdCardFont(cachedFontId)) {
-    renderer.ensureSdCardFontReady(cachedFontId, reinterpret_cast<const char*>(buffer), /*styleMask=*/0x01);
-  }
+  // SD-card (.epdfont) fonts stream glyph metrics on demand via SdFont's own glyph cache;
+  // no separate advance-table prewarm is needed here.
 
   const int lineHeight = renderer.getLineHeight(cachedFontId) * cachedLineCompression;
   // Track accumulated y to enforce height-based pagination. Extra paragraph

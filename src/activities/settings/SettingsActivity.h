@@ -6,7 +6,6 @@
 #include <vector>
 
 #include "CrossPointSettings.h"
-#include "SdCardFontSystem.h"
 #include "activities/Activity.h"
 #include "util/ButtonNavigator.h"
 
@@ -24,7 +23,6 @@ enum class SettingAction {
   SdFirmwareUpdate,
   Language,
   SelectSleepScreens,
-  DownloadFonts,
   FontSelection,        // Korean: pick the EPUB reader font from SD card
   SystemFontSelection,  // Korean: pick the UI system font from SD card
 };
@@ -148,7 +146,6 @@ struct SettingInfo {
 
 class SettingsActivity final : public Activity {
   ButtonNavigator buttonNavigator;
-  SdCardFontSystem sdFontSystem;
 
   int selectedCategoryIndex = 0;  // Currently selected category
   int selectedSettingIndex = 0;

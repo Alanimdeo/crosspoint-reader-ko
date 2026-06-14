@@ -326,54 +326,18 @@ bool CrossPointSettings::loadFromBinaryFile() {
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
-  // Korean custom font (KoPub Batang): use Korean-specific line compression values
-  if (hasCustomFont()) {
-    switch (lineSpacing) {
-      case TIGHT:
-        return 1.00f;
-      case NORMAL:
-      default:
-        return 1.20f;
-      case WIDE:
-        return 1.40f;
-    }
-  }
-
-  // SD card fonts use same compression as Bookerly (the most neutral values)
-  if (sdFontFamilyName[0] != '\0') {
-    switch (lineSpacing) {
-      case TIGHT:
-        return 0.95f;
-      case NORMAL:
-      default:
-        return 1.0f;
-      case WIDE:
-        return 1.1f;
-    }
-  }
-
-  switch (fontFamily) {
-    case NOTOSERIF:
+  // Korean line spacing: identical for the default KoPub Batang flash font AND any SD .epdfont
+  // reader font. The upstream font-family-conditional values (Bookerly/NotoSans) are not used in
+  // the Korean build — every reader font gets the same Korean line-height multiplier so line
+  // spacing matches 1.2.0-ko regardless of which font is selected.
+  switch (lineSpacing) {
+    case TIGHT:
+      return 1.00f;
+    case NORMAL:
     default:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.95f;
-        case NORMAL:
-        default:
-          return 1.0f;
-        case WIDE:
-          return 1.1f;
-      }
-    case NOTOSANS:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.90f;
-        case NORMAL:
-        default:
-          return 0.95f;
-        case WIDE:
-          return 1.0f;
-      }
+      return 1.20f;
+    case WIDE:
+      return 1.40f;
   }
 }
 

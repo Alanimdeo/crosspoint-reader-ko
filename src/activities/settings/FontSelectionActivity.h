@@ -48,7 +48,7 @@ class FontSelectionActivity final : public ActivityWithSubactivity {
   static constexpr const char* ROOT_FONTS_DIR = "/fonts";
   static constexpr const char* HIDDEN_FONTS_DIR = "/.fonts";  // upstream hidden font root
 
-  // Scans dirPath for .cpfont files; when recurseIntoSubdirs is true, also descends one level
-  // into per-family subfolders (upstream layout /fonts/<Family>/<Family>_<size>.cpfont).
+  // Scans dirPath for .epdfont files; when recurseIntoSubdirs is true, also descends one level
+  // into per-family subfolders (layout /fonts/<Family>/<Family>_<size>.epdfont).
   void scanFontsInDirectory(const char* dirPath, bool recurseIntoSubdirs = true);
 };

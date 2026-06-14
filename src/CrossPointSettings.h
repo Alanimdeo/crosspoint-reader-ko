@@ -245,8 +245,8 @@ class CrossPointSettings {
   uint8_t characterWrap = 1;
   // Focus Reading - emphasizes the first part of words with bold (English-only in KO build)
   uint8_t focusReadingEnabled = 0;
-  // SD card font family name (empty = use built-in fontFamily).
-  // Korean build disables SD card fonts (CP_DISABLE_SD_CARD_FONTS); field kept for settings compatibility.
+  // Legacy SD card font family name (empty = use built-in fontFamily). Korean font selection
+  // routes through customFontPath/systemFontPath; this field is kept for settings compatibility.
   char sdFontFamilyName[32] = "";
   // Show hidden files/directories (starting with '.') in the file browser (0 = hidden, 1 = show)
   uint8_t showHiddenFiles = 0;
@@ -281,12 +281,6 @@ class CrossPointSettings {
   static constexpr uint8_t MIN_SLEEP_TIMEOUT_MINUTES = 1;
   static constexpr uint8_t SLEEP_TIMEOUT_NEVER_MINUTES = 31;
   static constexpr uint8_t MAX_SLEEP_TIMEOUT_MINUTES = SLEEP_TIMEOUT_NEVER_MINUTES;
-
-  // Callback to resolve SD card font IDs. Set by SdCardFontSystem::begin().
-  // Returns font ID or 0 if not found.
-  using SdFontIdResolver = int (*)(void* ctx, const char* familyName, uint8_t fontSize);
-  SdFontIdResolver sdFontIdResolver = nullptr;
-  void* sdFontResolverCtx = nullptr;
 
   uint16_t getPowerButtonDuration() const {
     return (shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) ? 10 : 400;

@@ -20,8 +20,9 @@
 // uses Pretendard only.
 #define SYSTEM_FONT_ID (-888888)
 
-// Pretendard kept as the glyph-level fallback while a system font is the active UI font.
-// Registered unconditionally so resolveGlyphFont can pull missing glyphs from it.
+// Reserved id. The Korean system-font path keeps Pretendard registered under UI_FONT_ID and
+// wires it as the SD system font's glyph fallback via setGlyphFallback(SYSTEM_FONT_ID, UI_FONT_ID),
+// so this dedicated fallback slot is currently unused but kept reserved (and asserted non-zero).
 #define UI_FALLBACK_FONT_ID (-777777)
 
 // --- Upstream built-in reader font IDs (kept so upstream render/settings code compiles).

@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 #include <HalStorage.h>
-#include <HardwareSerial.h>
+#include <Logging.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -21,14 +21,14 @@ void GlyphBitmapCache::evictOldest() {
   while (currentSize > maxCacheSize && !cacheList.empty()) {
     auto& oldest = cacheList.back();
     currentSize -= oldest.size;
-    cacheMap.erase(oldest.codepoint);
+    cacheMap.erase(oldest.key);
     free(oldest.bitmap);
     cacheList.pop_back();
   }
 }
 
-const uint8_t* GlyphBitmapCache::get(uint32_t codepoint) {
-  auto it = cacheMap.find(codepoint);
+const uint8_t* GlyphBitmapCache::get(uint64_t key) {
+  auto it = cacheMap.find(key);
   if (it == cacheMap.end()) {
     return nullptr;
   }
@@ -41,9 +41,9 @@ const uint8_t* GlyphBitmapCache::get(uint32_t codepoint) {
   return it->second->bitmap;
 }
 
-const uint8_t* GlyphBitmapCache::put(uint32_t codepoint, const uint8_t* data, uint32_t size) {
+const uint8_t* GlyphBitmapCache::put(uint64_t key, const uint8_t* data, uint32_t size) {
   // Check if already cached
-  auto it = cacheMap.find(codepoint);
+  auto it = cacheMap.find(key);
   if (it != cacheMap.end()) {
     // Move to front
     if (it->second != cacheList.begin()) {
@@ -55,15 +55,15 @@ const uint8_t* GlyphBitmapCache::put(uint32_t codepoint, const uint8_t* data, ui
   // Allocate and copy bitmap data
   uint8_t* bitmapCopy = static_cast<uint8_t*>(malloc(size));
   if (!bitmapCopy) {
-    Serial.printf("[%lu] [SdFont] Failed to allocate %u bytes for glyph cache\n", millis(), size);
+    LOG_ERR("SDF", "Failed to allocate %u bytes for glyph cache", size);
     return nullptr;
   }
   memcpy(bitmapCopy, data, size);
 
   // Add to cache
-  CacheEntry entry = {codepoint, bitmapCopy, size};
+  CacheEntry entry = {key, bitmapCopy, size};
   cacheList.push_front(entry);
-  cacheMap[codepoint] = cacheList.begin();
+  cacheMap[key] = cacheList.begin();
   currentSize += size;
 
   // Evict if over limit
@@ -127,8 +127,9 @@ void GlyphMetadataCache::clear() {
 // Static members
 GlyphBitmapCache* SdFontData::sharedCache = nullptr;
 int SdFontData::cacheRefCount = 0;
+uint32_t SdFontData::nextFontId = 0;
 
-SdFontData::SdFontData(const char* path) : filePath(path), loaded(false), intervals(nullptr) {
+SdFontData::SdFontData(const char* path) : filePath(path), loaded(false), intervals(nullptr), fontId(nextFontId++) {
   memset(&header, 0, sizeof(header));
 
   // Initialize shared cache on first SdFontData creation
@@ -155,7 +156,11 @@ SdFontData::~SdFontData() {
 }
 
 SdFontData::SdFontData(SdFontData&& other) noexcept
-    : filePath(std::move(other.filePath)), loaded(other.loaded), header(other.header), intervals(other.intervals) {
+    : filePath(std::move(other.filePath)),
+      loaded(other.loaded),
+      header(other.header),
+      intervals(other.intervals),
+      fontId(other.fontId) {  // inherit identity so already-cached glyphs stay valid
   other.intervals = nullptr;
   other.loaded = false;
   cacheRefCount++;  // New instance references the cache
@@ -174,6 +179,7 @@ SdFontData& SdFontData::operator=(SdFontData&& other) noexcept {
     loaded = other.loaded;
     header = other.header;
     intervals = other.intervals;
+    fontId = other.fontId;  // inherit identity so already-cached glyphs stay valid
 
     other.intervals = nullptr;
     other.loaded = false;
@@ -196,48 +202,46 @@ bool SdFontData::load() {
   // Check available heap before attempting to load
   size_t freeHeap = ESP.getFreeHeap();
   if (freeHeap < MIN_FREE_HEAP_AFTER_LOAD) {
-    Serial.printf("[%lu] [SdFont] Insufficient heap: %u bytes (need %u)\n", millis(), freeHeap,
-                  MIN_FREE_HEAP_AFTER_LOAD);
+    LOG_ERR("SDF", "Insufficient heap: %u bytes (need %u)", freeHeap, MIN_FREE_HEAP_AFTER_LOAD);
     return false;
   }
 
   // Open font file
   if (!Storage.openFileForRead("SdFont", filePath.c_str(), fontFile)) {
-    Serial.printf("[%lu] [SdFont] Failed to open font file: %s\n", millis(), filePath.c_str());
+    LOG_ERR("SDF", "Failed to open font file: %s", filePath.c_str());
     return false;
   }
 
   // Read and validate header
   if (fontFile.read(&header, sizeof(EpdFontHeader)) != sizeof(EpdFontHeader)) {
-    Serial.printf("[%lu] [SdFont] Failed to read header from: %s\n", millis(), filePath.c_str());
+    LOG_ERR("SDF", "Failed to read header from: %s", filePath.c_str());
     fontFile.close();
     return false;
   }
 
   // Validate magic number
   if (header.magic != EPDFONT_MAGIC) {
-    Serial.printf("[%lu] [SdFont] Invalid magic: 0x%08X (expected 0x%08X)\n", millis(), header.magic, EPDFONT_MAGIC);
+    LOG_ERR("SDF", "Invalid magic: 0x%08X (expected 0x%08X)", header.magic, EPDFONT_MAGIC);
     fontFile.close();
     return false;
   }
 
   // Validate version
   if (header.version != EPDFONT_VERSION) {
-    Serial.printf("[%lu] [SdFont] Bad version: %u (expected %u)\n", millis(), header.version, EPDFONT_VERSION);
+    LOG_ERR("SDF", "Bad version: %u (expected %u)", header.version, EPDFONT_VERSION);
     fontFile.close();
     return false;
   }
 
   // Validate header values to prevent memory issues
   if (header.intervalCount > MAX_INTERVAL_COUNT) {
-    Serial.printf("[%lu] [SdFont] Too many intervals: %u (max %u)\n", millis(), header.intervalCount,
-                  MAX_INTERVAL_COUNT);
+    LOG_ERR("SDF", "Too many intervals: %u (max %u)", header.intervalCount, MAX_INTERVAL_COUNT);
     fontFile.close();
     return false;
   }
 
   if (header.glyphCount > MAX_GLYPH_COUNT) {
-    Serial.printf("[%lu] [SdFont] Too many glyphs: %u (max %u)\n", millis(), header.glyphCount, MAX_GLYPH_COUNT);
+    LOG_ERR("SDF", "Too many glyphs: %u (max %u)", header.glyphCount, MAX_GLYPH_COUNT);
     fontFile.close();
     return false;
   }
@@ -247,19 +251,18 @@ bool SdFontData::load() {
   size_t intervalsMemory = header.intervalCount * sizeof(EpdFontInterval);
 
   if (intervalsMemory > freeHeap - MIN_FREE_HEAP_AFTER_LOAD) {
-    Serial.printf("[%lu] [SdFont] Not enough memory for intervals: need %u, have %u\n", millis(), intervalsMemory,
-                  freeHeap);
+    LOG_ERR("SDF", "Not enough memory for intervals: need %u, have %u", intervalsMemory, freeHeap);
     fontFile.close();
     return false;
   }
 
-  Serial.printf("[%lu] [SdFont] Loading %s: %u intervals, %u glyphs (on-demand)\n", millis(), filePath.c_str(),
-                header.intervalCount, header.glyphCount);
+  LOG_DBG("SDF", "Loading %s: %u intervals, %u glyphs (on-demand)", filePath.c_str(), header.intervalCount,
+          header.glyphCount);
 
   // Allocate intervals array
   intervals = new (std::nothrow) EpdFontInterval[header.intervalCount];
   if (intervals == nullptr) {
-    Serial.printf("[%lu] [SdFont] Failed to allocate intervals (%u bytes)\n", millis(), intervalsMemory);
+    LOG_ERR("SDF", "Failed to allocate intervals (%u bytes)", intervalsMemory);
     fontFile.close();
     return false;
   }
@@ -269,7 +272,7 @@ bool SdFontData::load() {
   if (header.intervalsOffset != sizeof(EpdFontHeader)) {
     // Need to seek - file layout is non-standard
     if (!fontFile.seekSet(header.intervalsOffset)) {
-      Serial.printf("[%lu] [SdFont] Failed to seek to intervals at %u\n", millis(), header.intervalsOffset);
+      LOG_ERR("SDF", "Failed to seek to intervals at %u", header.intervalsOffset);
       fontFile.close();
       delete[] intervals;
       intervals = nullptr;
@@ -279,7 +282,7 @@ bool SdFontData::load() {
   // Otherwise, we're already positioned right after header - read directly
 
   if (fontFile.read(intervals, intervalsMemory) != static_cast<int>(intervalsMemory)) {
-    Serial.printf("[%lu] [SdFont] Failed to read intervals\n", millis());
+    LOG_ERR("SDF", "Failed to read intervals");
     fontFile.close();
     delete[] intervals;
     intervals = nullptr;
@@ -290,8 +293,7 @@ bool SdFontData::load() {
   fontFile.close();
 
   loaded = true;
-  Serial.printf("[%lu] [SdFont] Loaded: %s (advanceY=%u, intervals=%uKB)\n", millis(), filePath.c_str(),
-                header.advanceY, intervalsMemory / 1024);
+  LOG_DBG("SDF", "Loaded: %s (advanceY=%u, intervals=%uKB)", filePath.c_str(), header.advanceY, intervalsMemory / 1024);
 
   return true;
 }
@@ -398,8 +400,9 @@ const uint8_t* SdFontData::getGlyphBitmap(uint32_t codepoint) const {
     return nullptr;
   }
 
-  // Check cache first
-  const uint8_t* cached = sharedCache->get(codepoint);
+  // Check cache first (keyed by font identity + codepoint to avoid cross-font aliasing)
+  const uint64_t cacheKey = bitmapCacheKey(codepoint);
+  const uint8_t* cached = sharedCache->get(cacheKey);
   if (cached != nullptr) {
     return cached;
   }
@@ -449,7 +452,7 @@ const uint8_t* SdFontData::getGlyphBitmap(uint32_t codepoint) const {
   // File stays open for next glyph read (performance optimization)
 
   // Store in cache
-  const uint8_t* result = sharedCache->put(codepoint, tempBuffer, fileGlyph.dataLength);
+  const uint8_t* result = sharedCache->put(cacheKey, tempBuffer, fileGlyph.dataLength);
   free(tempBuffer);
 
   return result;

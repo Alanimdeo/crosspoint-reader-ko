@@ -110,8 +110,8 @@ void FontSelectionActivity::scanFontsInDirectory(const char* dirPath, bool recur
     return;
   }
 
-  // Scan for .cpfont files here, and one level into family subfolders. The upstream
-  // layout places each file at /fonts/<Family>/<Family>_<size>.cpfont, so we must look
+  // Scan for .epdfont files here, and one level into family subfolders. The per-family
+  // layout places each file at /fonts/<Family>/<Family>_<size>.epdfont, so we must look
   // inside per-family subfolders; flat files directly in dirPath are also accepted.
   while (true) {
     HalFile file = dir.openNextFile();
@@ -130,12 +130,12 @@ void FontSelectionActivity::scanFontsInDirectory(const char* dirPath, bool recur
       continue;
     }
 
-    // Accept .cpfont v4 files (the format SdCardFont::load reads); skip macOS hidden files (._*)
+    // Accept .epdfont files (the format SdFont::load reads); skip macOS hidden files (._*)
     const size_t len = strlen(name);
-    if (len > 7 && strcasecmp(name + len - 7, ".cpfont") == 0 && strncmp(name, "._", 2) != 0) {
+    if (len > 8 && strcasecmp(name + len - 8, ".epdfont") == 0 && strncmp(name, "._", 2) != 0) {
       std::string fullPath = std::string(dirPath) + "/" + name;
       fontFiles.push_back(fullPath);
-      fontNames.push_back(std::string(name, len - 7));  // display name without extension
+      fontNames.push_back(std::string(name, len - 8));  // display name without extension
       LOG_DBG("FNT", "Found font: %s", fullPath.c_str());
     }
   }
@@ -156,8 +156,8 @@ void FontSelectionActivity::loadFontList() {
   Storage.mkdir(FONTS_DIR);
 
   // Scan /.crosspoint/fonts, the visible /fonts root, and the hidden /.fonts root.
-  // Each scan also descends one level into per-family subfolders (the upstream layout:
-  // /fonts/<Family>/<Family>_<size>.cpfont, or /.fonts/<Family>/... when hidden).
+  // Each scan also descends one level into per-family subfolders (the layout:
+  // /fonts/<Family>/<Family>_<size>.epdfont, or /.fonts/<Family>/... when hidden).
   scanFontsInDirectory(FONTS_DIR);
   scanFontsInDirectory(ROOT_FONTS_DIR);
   scanFontsInDirectory(HIDDEN_FONTS_DIR);
