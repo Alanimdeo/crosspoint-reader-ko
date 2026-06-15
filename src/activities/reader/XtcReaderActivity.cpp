@@ -12,6 +12,7 @@
 #include <HalStorage.h>
 #include <HalTiltSensor.h>
 #include <I18n.h>
+#include <SdFont.h>
 
 #include <algorithm>
 
@@ -32,6 +33,15 @@ void XtcReaderActivity::onEnter() {
   }
 
   xtc->setupCacheDir();
+
+  // Free the shared SD-font glyph bitmap cache before rendering. Each XTC page
+  // needs a single large contiguous buffer (up to ~96KB for XTH 2-bit, ~48KB for
+  // XTG 1-bit). A CJK system/reader SD font fills the 32KB shared glyph cache
+  // with many small mallocs that fragment the heap and can starve that
+  // contiguous allocation in renderPage(). The XTC reader only uses the UI font
+  // for the status bar/error text, so dropping the cache here is cheap; it
+  // re-populates on demand. See renderPage() for the retry-after-clear safety net.
+  SdFontData::clearCache();
 
   // Load saved progress
   loadProgress();
@@ -221,6 +231,13 @@ void XtcReaderActivity::renderPage() {
 
   // Allocate page buffer
   uint8_t* pageBuffer = static_cast<uint8_t*>(malloc(pageBufferSize));
+  if (!pageBuffer) {
+    // Heap is likely fragmented by the SD-font glyph cache (no single contiguous
+    // block this large despite enough total free heap). Drop the cache and retry
+    // once before giving up.
+    SdFontData::clearCache();
+    pageBuffer = static_cast<uint8_t*>(malloc(pageBufferSize));
+  }
   if (!pageBuffer) {
     LOG_ERR("XTR", "Failed to allocate page buffer (%lu bytes)", pageBufferSize);
     renderer.clearScreen();
