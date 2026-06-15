@@ -92,7 +92,13 @@ class SdFontData {
 
   // Font metadata (loaded once, kept in RAM)
   EpdFontHeader header;
-  EpdFontInterval* intervals;  // Dynamically allocated (~40KB for Korean)
+  // Intervals are NOT held in RAM. A CJK font's interval table is 50KB+ and a
+  // single contiguous allocation that fragments the heap — starving the XTC page
+  // buffer and blocking large-font loads. findGlyphIndex() binary-searches the
+  // table directly on the SD file instead. Only the most-recently matched
+  // interval is cached so runs of same-script text resolve with zero SD I/O.
+  mutable EpdFontInterval lastInterval{};
+  mutable bool lastIntervalValid = false;
   // Note: glyphs are NOT preloaded - loaded on-demand to save memory
 
   // Glyph metadata cache (per-font, small LRU cache)

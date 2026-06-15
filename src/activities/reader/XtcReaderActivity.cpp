@@ -219,15 +219,16 @@ void XtcReaderActivity::renderPage() {
   const uint16_t pageHeight = xtc->getPageHeight();
   const uint8_t bitDepth = xtc->getBitDepth();
 
-  // Calculate buffer size for one page
-  // XTG (1-bit): Row-major, ((width+7)/8) * height bytes
-  // XTH (2-bit): Two bit planes, column-major, ((width * height + 7) / 8) * 2 bytes
-  size_t pageBufferSize;
-  if (bitDepth == 2) {
-    pageBufferSize = ((static_cast<size_t>(pageWidth) * pageHeight + 7) / 8) * 2;
-  } else {
-    pageBufferSize = ((pageWidth + 7) / 8) * pageHeight;
+  // XTG 1-bit pages are streamed (see below) and need no large buffer. Only the
+  // XTH 2-bit grayscale path buffers the whole page, because its two bit planes
+  // are accessed in column-major random order across the full image.
+  if (bitDepth != 2) {
+    renderStreaming1Bit(pageWidth, pageHeight);
+    return;
   }
+
+  // XTH (2-bit): two bit planes, column-major. ((width * height + 7) / 8) * 2 bytes.
+  const size_t pageBufferSize = ((static_cast<size_t>(pageWidth) * pageHeight + 7) / 8) * 2;
 
   // Allocate page buffer
   uint8_t* pageBuffer = static_cast<uint8_t*>(malloc(pageBufferSize));
@@ -261,11 +262,7 @@ void XtcReaderActivity::renderPage() {
   // Clear screen first
   renderer.clearScreen();
 
-  // Copy page bitmap using GfxRenderer's drawPixel
-  // XTC/XTCH pages are pre-rendered with status bar included, so render full page
-  const uint16_t maxSrcY = pageHeight;
-
-  if (bitDepth == 2) {
+  {
     // XTH 2-bit mode: Two bit planes, column-major order
     // - Columns scanned right to left (x = width-1 down to 0)
     // - 8 vertical pixels per byte (MSB = topmost pixel in group)
@@ -358,29 +355,53 @@ void XtcReaderActivity::renderPage() {
 
     LOG_DBG("XTR", "Rendered page %lu/%lu (2-bit grayscale)", currentPage + 1, xtc->getPageCount());
     return;
-  } else {
-    // 1-bit mode: 8 pixels per byte, MSB first
-    const size_t srcRowBytes = (pageWidth + 7) / 8;  // 60 bytes for 480 width
-
-    for (uint16_t srcY = 0; srcY < maxSrcY; srcY++) {
-      const size_t srcRowStart = srcY * srcRowBytes;
-
-      for (uint16_t srcX = 0; srcX < pageWidth; srcX++) {
-        // Read source pixel (MSB first, bit 7 = leftmost pixel)
-        const size_t srcByte = srcRowStart + srcX / 8;
-        const size_t srcBit = 7 - (srcX % 8);
-        const bool isBlack = !((pageBuffer[srcByte] >> srcBit) & 1);  // XTC: 0 = black, 1 = white
-
-        if (isBlack) {
-          renderer.drawPixel(srcX, srcY, true);
-        }
-      }
-    }
   }
+}
+
+void XtcReaderActivity::renderStreaming1Bit(uint16_t pageWidth, uint16_t pageHeight) {
+  // XTG 1-bit: row-major, 8 pixels per byte, MSB first. Stream the page in
+  // row-aligned bands straight into the framebuffer, so no large contiguous page
+  // buffer is allocated. This keeps XTC rendering independent of heap
+  // fragmentation from SD fonts, which previously starved the ~48KB page-buffer
+  // malloc and produced STR_MEMORY_ERROR.
+  renderer.clearScreen();
+
+  const size_t srcRowBytes = (pageWidth + 7) / 8;  // 60 bytes for 480 width
+  static constexpr uint16_t STREAM_BAND_ROWS = 16;
+
+  const xtc::XtcError streamErr = xtc->loadPageStreaming(
+      currentPage,
+      [&](const uint8_t* data, size_t size, size_t offset) {
+        // chunkSize is a multiple of srcRowBytes, so each band is whole rows.
+        const uint16_t startRow = static_cast<uint16_t>(offset / srcRowBytes);
+        const uint16_t bandRows = static_cast<uint16_t>(size / srcRowBytes);
+        for (uint16_t r = 0; r < bandRows; r++) {
+          const uint16_t srcY = startRow + r;
+          if (srcY >= pageHeight) {
+            return;
+          }
+          const size_t rowStart = static_cast<size_t>(r) * srcRowBytes;
+          for (uint16_t srcX = 0; srcX < pageWidth; srcX++) {
+            const size_t srcByte = rowStart + srcX / 8;
+            const size_t srcBit = 7 - (srcX % 8);
+            const bool isBlack = !((data[srcByte] >> srcBit) & 1);  // XTC: 0 = black, 1 = white
+            if (isBlack) {
+              renderer.drawPixel(srcX, srcY, true);
+            }
+          }
+        }
+      },
+      srcRowBytes * STREAM_BAND_ROWS);
+
+  if (streamErr != xtc::XtcError::OK) {
+    LOG_ERR("XTR", "Failed to stream page %lu: %s", currentPage, xtc::errorToString(streamErr));
+    renderer.clearScreen();
+    renderer.drawCenteredText(UI_12_FONT_ID, 300, tr(STR_PAGE_LOAD_ERROR), true, EpdFontFamily::BOLD);
+    renderer.displayBuffer();
+    return;
+  }
+
   // White pixels are already cleared by clearScreen()
-
-  free(pageBuffer);
-
   if (SETTINGS.xtcStatusBarMode == CrossPointSettings::XTC_STATUS_BAR_MODE::XTC_STATUS_BAR_TOP) {
     renderStatusBarOverlay(StatusBarOverlayPosition::Top);
   } else {
@@ -389,7 +410,7 @@ void XtcReaderActivity::renderPage() {
 
   ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh);
 
-  LOG_DBG("XTR", "Rendered page %lu/%lu (%u-bit)", currentPage + 1, xtc->getPageCount(), bitDepth);
+  LOG_DBG("XTR", "Rendered page %lu/%lu (1-bit streamed)", currentPage + 1, xtc->getPageCount());
 }
 
 void XtcReaderActivity::saveProgress() const {
