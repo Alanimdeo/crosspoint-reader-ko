@@ -1,6 +1,6 @@
 #include "SdFontFamily.h"
 
-#include <HardwareSerial.h>
+#include <Logging.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -76,19 +76,19 @@ bool SdFontFamily::load() {
   bool success = true;
 
   if (regular && !regular->load()) {
-    Serial.printf("[%lu] [SdFontFamily] Failed to load regular font\n", millis());
+    LOG_ERR("SDF", "Failed to load regular font");
     success = false;
   }
   if (bold && !bold->load()) {
-    Serial.printf("[%lu] [SdFontFamily] Failed to load bold font\n", millis());
+    LOG_ERR("SDF", "Failed to load bold font");
     // Bold is optional, don't fail completely
   }
   if (italic && !italic->load()) {
-    Serial.printf("[%lu] [SdFontFamily] Failed to load italic font\n", millis());
+    LOG_ERR("SDF", "Failed to load italic font");
     // Italic is optional
   }
   if (boldItalic && !boldItalic->load()) {
-    Serial.printf("[%lu] [SdFontFamily] Failed to load bold-italic font\n", millis());
+    LOG_ERR("SDF", "Failed to load bold-italic font");
     // Bold-italic is optional
   }
 
