@@ -108,9 +108,7 @@ class SdFontData {
   uint32_t fontId;
 
   // Build the shared-cache key for a codepoint within this font instance.
-  uint64_t bitmapCacheKey(uint32_t codepoint) const {
-    return (static_cast<uint64_t>(fontId) << 32) | codepoint;
-  }
+  uint64_t bitmapCacheKey(uint32_t codepoint) const { return (static_cast<uint64_t>(fontId) << 32) | codepoint; }
 
   // File handle for reading (opened on demand).
   // Upstream HalStorage renamed FsFile -> HalFile; use HalFile directly so the
