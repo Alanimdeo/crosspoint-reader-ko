@@ -28,6 +28,8 @@ class XtcReaderActivity final : public Activity {
   };
 
   void renderPage();
+  // XTG 1-bit page render via row-aligned band streaming (no large page buffer).
+  void renderStreaming1Bit(uint16_t pageWidth, uint16_t pageHeight);
   void renderStatusBarOverlay(StatusBarOverlayPosition position) const;
   StatusBarInfo getStatusBarInfo() const;
   void saveProgress() const;

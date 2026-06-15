@@ -129,7 +129,7 @@ GlyphBitmapCache* SdFontData::sharedCache = nullptr;
 int SdFontData::cacheRefCount = 0;
 uint32_t SdFontData::nextFontId = 0;
 
-SdFontData::SdFontData(const char* path) : filePath(path), loaded(false), intervals(nullptr), fontId(nextFontId++) {
+SdFontData::SdFontData(const char* path) : filePath(path), loaded(false), fontId(nextFontId++) {
   memset(&header, 0, sizeof(header));
 
   // Initialize shared cache on first SdFontData creation
@@ -145,8 +145,6 @@ SdFontData::~SdFontData() {
     fontFile.close();
   }
 
-  delete[] intervals;
-
   // Cleanup shared cache when last SdFontData is destroyed
   cacheRefCount--;
   if (cacheRefCount == 0 && sharedCache != nullptr) {
@@ -159,9 +157,7 @@ SdFontData::SdFontData(SdFontData&& other) noexcept
     : filePath(std::move(other.filePath)),
       loaded(other.loaded),
       header(other.header),
-      intervals(other.intervals),
       fontId(other.fontId) {  // inherit identity so already-cached glyphs stay valid
-  other.intervals = nullptr;
   other.loaded = false;
   cacheRefCount++;  // New instance references the cache
 }
@@ -172,16 +168,14 @@ SdFontData& SdFontData::operator=(SdFontData&& other) noexcept {
     if (fontFile) {
       fontFile.close();
     }
-    delete[] intervals;
 
     // Move from other
     filePath = std::move(other.filePath);
     loaded = other.loaded;
     header = other.header;
-    intervals = other.intervals;
     fontId = other.fontId;  // inherit identity so already-cached glyphs stay valid
+    lastIntervalValid = false;
 
-    other.intervals = nullptr;
     other.loaded = false;
   }
   return *this;
@@ -192,18 +186,10 @@ SdFontData& SdFontData::operator=(SdFontData&& other) noexcept {
 // Glyphs are loaded on-demand from SD, so high count doesn't affect memory
 static constexpr uint32_t MAX_INTERVAL_COUNT = 10000;
 static constexpr uint32_t MAX_GLYPH_COUNT = 150000;
-static constexpr size_t MIN_FREE_HEAP_AFTER_LOAD = 16384;  // 16KB minimum heap after loading
 
 bool SdFontData::load() {
   if (loaded) {
     return true;
-  }
-
-  // Check available heap before attempting to load
-  size_t freeHeap = ESP.getFreeHeap();
-  if (freeHeap < MIN_FREE_HEAP_AFTER_LOAD) {
-    LOG_ERR("SDF", "Insufficient heap: %u bytes (need %u)", freeHeap, MIN_FREE_HEAP_AFTER_LOAD);
-    return false;
   }
 
   // Open font file
@@ -233,7 +219,7 @@ bool SdFontData::load() {
     return false;
   }
 
-  // Validate header values to prevent memory issues
+  // Validate header values to prevent absurd on-demand searches
   if (header.intervalCount > MAX_INTERVAL_COUNT) {
     LOG_ERR("SDF", "Too many intervals: %u (max %u)", header.intervalCount, MAX_INTERVAL_COUNT);
     fontFile.close();
@@ -246,54 +232,21 @@ bool SdFontData::load() {
     return false;
   }
 
-  // Calculate required memory - only intervals are loaded into RAM
-  // Glyphs are loaded on-demand from SD card to save memory
-  size_t intervalsMemory = header.intervalCount * sizeof(EpdFontInterval);
-
-  if (intervalsMemory > freeHeap - MIN_FREE_HEAP_AFTER_LOAD) {
-    LOG_ERR("SDF", "Not enough memory for intervals: need %u, have %u", intervalsMemory, freeHeap);
+  // The interval table is searched on-demand directly on the SD file (see
+  // findGlyphIndex); it is never copied into RAM, so no large contiguous
+  // allocation is made here. Just sanity-check its location.
+  if (header.intervalsOffset < sizeof(EpdFontHeader)) {
+    LOG_ERR("SDF", "Bad intervalsOffset: %u", header.intervalsOffset);
     fontFile.close();
     return false;
   }
 
-  LOG_DBG("SDF", "Loading %s: %u intervals, %u glyphs (on-demand)", filePath.c_str(), header.intervalCount,
-          header.glyphCount);
-
-  // Allocate intervals array
-  intervals = new (std::nothrow) EpdFontInterval[header.intervalCount];
-  if (intervals == nullptr) {
-    LOG_ERR("SDF", "Failed to allocate intervals (%u bytes)", intervalsMemory);
-    fontFile.close();
-    return false;
-  }
-
-  // Read intervals - data should be contiguous after header, but verify offset
-  // Expected offset for intervals is 32 (right after header)
-  if (header.intervalsOffset != sizeof(EpdFontHeader)) {
-    // Need to seek - file layout is non-standard
-    if (!fontFile.seekSet(header.intervalsOffset)) {
-      LOG_ERR("SDF", "Failed to seek to intervals at %u", header.intervalsOffset);
-      fontFile.close();
-      delete[] intervals;
-      intervals = nullptr;
-      return false;
-    }
-  }
-  // Otherwise, we're already positioned right after header - read directly
-
-  if (fontFile.read(intervals, intervalsMemory) != static_cast<int>(intervalsMemory)) {
-    LOG_ERR("SDF", "Failed to read intervals");
-    fontFile.close();
-    delete[] intervals;
-    intervals = nullptr;
-    return false;
-  }
-
-  // Close the file after loading intervals - we'll reopen when reading glyphs/bitmaps
-  fontFile.close();
-
+  // Keep the file handle open: findGlyphIndex()/getGlyph()/getGlyphBitmap() read
+  // from it on demand (ensureFileOpen() reopens it if it is ever closed).
   loaded = true;
-  LOG_DBG("SDF", "Loaded: %s (advanceY=%u, intervals=%uKB)", filePath.c_str(), header.advanceY, intervalsMemory / 1024);
+  lastIntervalValid = false;
+  LOG_DBG("SDF", "Loaded: %s (advanceY=%u, %u intervals, %u glyphs, on-demand)", filePath.c_str(), header.advanceY,
+          header.intervalCount, header.glyphCount);
 
   return true;
 }
@@ -343,25 +296,46 @@ bool SdFontData::loadGlyphFromSD(int glyphIndex, EpdGlyph* outGlyph) const {
 }
 
 int SdFontData::findGlyphIndex(uint32_t codepoint) const {
-  if (!loaded || intervals == nullptr) {
+  if (!loaded) {
     return -1;
   }
 
-  // Binary search for the interval containing this codepoint
+  // Fast path: codepoint falls inside the most recently matched interval. Runs
+  // of same-script text (e.g. a Hangul paragraph) stay in one interval, so this
+  // resolves with zero SD I/O for the common case.
+  if (lastIntervalValid && codepoint >= lastInterval.first && codepoint <= lastInterval.last) {
+    return static_cast<int>(lastInterval.offset + (codepoint - lastInterval.first));
+  }
+
+  if (header.intervalCount == 0 || !ensureFileOpen()) {
+    return -1;
+  }
+
+  // Binary search the interval table directly on the SD file. Each EpdFontInterval
+  // is 12 bytes, sorted by codepoint, starting at header.intervalsOffset. Keeping
+  // the table on SD (rather than a 50KB+ RAM array for CJK fonts) avoids a large
+  // contiguous allocation that fragments the heap.
   int left = 0;
   int right = static_cast<int>(header.intervalCount) - 1;
 
   while (left <= right) {
-    int mid = left + (right - left) / 2;
-    const EpdFontInterval* interval = &intervals[mid];
+    const int mid = left + (right - left) / 2;
+    const uint32_t intervalOffset = header.intervalsOffset + static_cast<uint32_t>(mid) * sizeof(EpdFontInterval);
 
-    if (codepoint < interval->first) {
+    EpdFontInterval interval;
+    if (!fontFile.seekSet(intervalOffset) || fontFile.read(&interval, sizeof(interval)) != sizeof(interval)) {
+      return -1;
+    }
+
+    if (codepoint < interval.first) {
       right = mid - 1;
-    } else if (codepoint > interval->last) {
+    } else if (codepoint > interval.last) {
       left = mid + 1;
     } else {
-      // Found: codepoint is within this interval
-      return static_cast<int>(interval->offset + (codepoint - interval->first));
+      // Found: cache this interval for subsequent same-interval lookups.
+      lastInterval = interval;
+      lastIntervalValid = true;
+      return static_cast<int>(interval.offset + (codepoint - interval.first));
     }
   }
 
