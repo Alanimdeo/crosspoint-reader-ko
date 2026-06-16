@@ -446,6 +446,18 @@ void CssParser::processRuleBlockWithStyle(std::string_view selectorGroup, const 
     return;
   }
 
+  // Bail out if the heap is too fragmented to keep inserting without starving
+  // the page-load pipeline. Without this, pathological auto-generated CSS
+  // (hundreds of .lhNN/.mbNN ladder classes from Yes24-style pipelines) eats
+  // the heap during the initial live parse and a later allocation aborts on
+  // bad_alloc (exceptions disabled), so the book never opens. Mirrors the same
+  // guard in loadFromCache(). Check every 8 rules. Partial CSS beats no book.
+  if ((rulesBySelector_.size() & 0x7) == 0 && ESP.getMaxAllocHeap() < MIN_MAX_ALLOC_FOR_INSERT) {
+    LOG_ERR("CSS", "MaxAlloc %u below safe threshold after %zu rules, stopping", ESP.getMaxAllocHeap(),
+            rulesBySelector_.size());
+    return;
+  }
+
   // Walk comma-separated selectors in place — no vector allocation. Selectors
   // with unsupported syntax (combinators, attributes, pseudo, etc.) are skipped
   // silently; the only heap allocation per kept selector is the std::string
