@@ -761,10 +761,17 @@ size_t TxtReaderActivity::findBackwardPageStart(size_t endOffset) const {
   // is our answer.
   while (cursor < endOffset) {
     size_t next = cursor;
-    // Backward scan: cursor is always at a snapped line start, so the leading
-    // source line on the synthetic page is by definition a paragraph start.
-    if (!const_cast<TxtReaderActivity*>(this)->loadPageAtOffset(cursor, /*firstLineIsParagraphStart=*/true, lines,
-                                                                nullptr, nullptr, next)) {
+    // The leading source line is a paragraph start only when cursor actually
+    // sits at a line boundary. Only the first cursor (snapToLineStart above) is
+    // guaranteed to be one; every subsequent cursor is the previous synthetic
+    // page's end, which usually lands mid-paragraph. Forward rendering decides
+    // this via isOffsetAtLineStart() (see render()), so mirror it exactly here —
+    // otherwise the reconstructed pages get different paragraph spacing/indent,
+    // their height-based boundaries drift from the forward pages, and Back lands
+    // on a misaligned offset (issue #17 "text shifted to a different part").
+    const bool firstLineIsParagraphStart = isOffsetAtLineStart(cursor);
+    if (!const_cast<TxtReaderActivity*>(this)->loadPageAtOffset(cursor, firstLineIsParagraphStart, lines, nullptr,
+                                                                nullptr, next)) {
       break;
     }
     if (next <= cursor) break;
