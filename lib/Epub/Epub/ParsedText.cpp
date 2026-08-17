@@ -630,10 +630,12 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
     // Target: spacing should be between minSpacing and maxSpacing
     int totalWordWidth = 0;
 
-    // Advance, not ink box: getTextWidth() omits the trailing side bearing, which is fine for a
-    // whole word measured once but wrong for positioning consecutive pieces.
+    // Ink box, matching 1.2/1.3-ko. Accumulating advances instead adds each run's trailing side
+    // bearing to the visual gap, which widens every word space and costs a few characters per
+    // page. Glyph spacing inside a run is unaffected: runs are coalesced below and drawn by one
+    // drawText call, which advances by the real advances.
     const auto measure = [&](const std::string& token, const EpdFontFamily::Style style) {
-      return renderer.getTextAdvanceX(fontId, token.c_str(), style);
+      return renderer.getTextWidth(fontId, token.c_str(), style);
     };
 
     // Appends a token and keeps totalWordWidth in sync. Glued tokens are concatenated onto the

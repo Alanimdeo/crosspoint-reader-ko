@@ -34,9 +34,9 @@ namespace {
 // v37 (KO): header carries paragraphIndent and characterWrap; both are part of the cache key.
 //      Numbered past upstream's 36 so an upstream cache is never read with this layout.
 // v38 (KO): layoutCharacterWrap honours wordNoSpaceBefore, so glued CJK tokens are drawn flush.
-// v39 (KO): glued runs are coalesced into one token and measured by advance, restoring their
-//      kerning and rounding.
-constexpr uint8_t SECTION_FILE_VERSION = 39;
+// v39 (KO): glued runs are coalesced into one token, restoring their kerning and rounding.
+// v40 (KO): run widths are measured by ink box again, so word spacing matches 1.3.0-ko density.
+constexpr uint8_t SECTION_FILE_VERSION = 40;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
 // crash-interrupted .bin therefore carries version 0, which loadSectionFile rejects
