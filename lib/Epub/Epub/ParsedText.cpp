@@ -590,13 +590,30 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
     words.front().insert(0, "\xe3\x80\x80");  // U+3000 ideographic space
   }
 
-  // Consume one whole word off the front, keeping the visible-offset side table aligned.
+  // Consume one whole word off the front, keeping every per-token side array aligned.
   // Partially consumed words are left in place (words.front() holds the remainder), so their
-  // offset entry must stay too — only fully consumed words are erased here.
+  // entries must stay too — only fully consumed words are erased here.
   const auto consumeFrontWord = [this]() {
     words.erase(words.begin());
-    wordStyles.erase(wordStyles.begin());
+    if (!wordStyles.empty()) wordStyles.erase(wordStyles.begin());
+    if (!wordContinues.empty()) wordContinues.erase(wordContinues.begin());
+    if (!wordNoSpaceBefore.empty()) wordNoSpaceBefore.erase(wordNoSpaceBefore.begin());
+    if (!wordIsFocusSuffix.empty()) wordIsFocusSuffix.erase(wordIsFocusSuffix.begin());
     eraseVisibleOffsetPrefix(1);
+  };
+
+  // Whether the front token needs a real word gap before it.
+  //
+  // Upstream 1.5.0 splits every CJK-bearing word into one token per character (see
+  // cjkCharacterBreakByteOffsets in addWord) and flags the pieces wordNoSpaceBefore, so a
+  // Hangul word arrives here as N glued tokens rather than one. Those pieces must be drawn
+  // flush against each other: charging each one a space gap — and then justifying across
+  // those gaps — spaces out every syllable and renders the paragraph at uniform letter
+  // spacing. Only genuinely space-delimited boundaries are gaps.
+  const auto frontGapBefore = [this]() {
+    const bool continues = !wordContinues.empty() && wordContinues.front();
+    const bool noSpace = !wordNoSpaceBefore.empty() && wordNoSpaceBefore.front();
+    return !continues && !noSpace;
   };
 
   while (!words.empty()) {
@@ -605,6 +622,24 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
     std::vector<std::string> lineWordsVec;
     std::vector<int> lineWordWidths;
     std::vector<EpdFontFamily::Style> lineWordStylesVec;
+    // Parallel to lineWordsVec: true when this token is preceded by a real word gap. Index 0 is
+    // always false (line start). realGapCount is the number of true entries, i.e. the number of
+    // gaps the justifier may stretch.
+    std::vector<bool> lineGapBefore;
+    int realGapCount = 0;
+    // Set after a token is split: the remainder is the tail of the same word, so if it lands on
+    // this same line it must sit flush against the piece before it.
+    bool suppressNextGap = false;
+
+    const auto appendToLine = [&](std::string token, const int width, const EpdFontFamily::Style style,
+                                  const bool wantsGap) {
+      const bool gapBefore = !lineWordsVec.empty() && wantsGap;
+      lineWordsVec.push_back(std::move(token));
+      lineWordWidths.push_back(width);
+      lineWordStylesVec.push_back(style);
+      lineGapBefore.push_back(gapBefore);
+      if (gapBefore) realGapCount++;
+    };
 
     // Phase 1: Greedily collect words/characters to fill the line
     // Target: spacing should be between minSpacing and maxSpacing
@@ -616,8 +651,9 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
       const int wordWidth = renderer.getTextWidth(fontId, word.c_str(), wordStyle);
 
       // Calculate what spacing would be if we add this word
+      const bool wantsGap = !lineWordsVec.empty() && !suppressNextGap && frontGapBefore();
       int newTotalWidth = totalWordWidth + wordWidth;
-      int newGapCount = lineWordsVec.size();  // gaps = word count (before adding new word)
+      int newGapCount = realGapCount + (wantsGap ? 1 : 0);  // stretchable gaps after adding
       int newSpareSpace = pageWidth - newTotalWidth;
       int newSpacing = (newGapCount > 0) ? (newSpareSpace / newGapCount) : maxSpacing + 1;
 
@@ -625,10 +661,9 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
         // First word - must add something
         if (wordWidth <= pageWidth) {
           // Whole word fits
-          lineWordsVec.push_back(word);
-          lineWordWidths.push_back(wordWidth);
-          lineWordStylesVec.push_back(wordStyle);
+          appendToLine(word, wordWidth, wordStyle, false);
           totalWordWidth = wordWidth;
+          suppressNextGap = false;
           consumeFrontWord();
         } else {
           // Word too long - split it
@@ -647,25 +682,26 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
             partial = chars[0];
           }
           int partialWidth = renderer.getTextWidth(fontId, partial.c_str(), wordStyle);
-          lineWordsVec.push_back(partial);
-          lineWordWidths.push_back(partialWidth);
-          lineWordStylesVec.push_back(wordStyle);
+          appendToLine(partial, partialWidth, wordStyle, false);
           totalWordWidth = partialWidth;
 
           if (charsFit < chars.size()) {
             std::string remainder;
             for (size_t i = charsFit; i < chars.size(); i++) remainder += chars[i];
             words.front() = remainder;
+            suppressNextGap = true;  // remainder is the tail of this same word
           } else {
+            suppressNextGap = false;
             consumeFrontWord();
           }
         }
-      } else if (newSpacing >= minSpacing) {
-        // Adding this word keeps spacing >= minSpacing - add it
-        lineWordsVec.push_back(word);
-        lineWordWidths.push_back(wordWidth);
-        lineWordStylesVec.push_back(wordStyle);
+      } else if (newTotalWidth <= pageWidth && newSpacing >= minSpacing) {
+        // Adding this word keeps spacing >= minSpacing - add it.
+        // The width guard matters for a line of glued CJK tokens: newGapCount is 0 there, so
+        // newSpacing is pinned above maxSpacing and the spacing test alone would never stop.
+        appendToLine(word, wordWidth, wordStyle, wantsGap);
         totalWordWidth = newTotalWidth;
+        suppressNextGap = false;
         consumeFrontWord();
 
         // If spacing is now within range, we might be done with this line
@@ -676,7 +712,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
       } else {
         // Adding whole word would make spacing < minSpacing
         // Try to add partial characters from this word
-        int currentGapCount = lineWordsVec.size();
+        int currentGapCount = realGapCount;
         // We want: (pageWidth - totalWordWidth - partialWidth) / currentGapCount >= minSpacing
         // So: partialWidth <= pageWidth - totalWordWidth - currentGapCount * minSpacing
         int maxPartialWidth = pageWidth - totalWordWidth - currentGapCount * minSpacing;
@@ -695,16 +731,16 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
 
           if (charsFit > 0) {
             int partialWidth = renderer.getTextWidth(fontId, partial.c_str(), wordStyle);
-            lineWordsVec.push_back(partial);
-            lineWordWidths.push_back(partialWidth);
-            lineWordStylesVec.push_back(wordStyle);
+            appendToLine(partial, partialWidth, wordStyle, wantsGap);
             totalWordWidth += partialWidth;
 
             if (charsFit < chars.size()) {
               std::string remainder;
               for (size_t i = charsFit; i < chars.size(); i++) remainder += chars[i];
               words.front() = remainder;
+              suppressNextGap = true;  // remainder is the tail of this same word
             } else {
+              suppressNextGap = false;
               consumeFrontWord();
             }
           }
@@ -716,7 +752,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
 
     // Phase 2: Check if spacing is too large, fill with more characters
     while (!words.empty() && lineWordsVec.size() >= 1) {
-      int gapCount = lineWordsVec.size();
+      int gapCount = realGapCount;
       int spareSpace = pageWidth - totalWordWidth;
       int spacing = (gapCount > 0) ? (spareSpace / gapCount) : 0;
 
@@ -753,23 +789,23 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
       if (charsFit == 0) break;  // Can't fit any character
 
       // Add partial
-      lineWordsVec.push_back(partial);
-      lineWordWidths.push_back(partialWidth);
-      lineWordStylesVec.push_back(nextStyle);
+      appendToLine(partial, partialWidth, nextStyle, !suppressNextGap && frontGapBefore());
       totalWordWidth += partialWidth;
 
       if (charsFit < chars.size()) {
         std::string remainder;
         for (size_t i = charsFit; i < chars.size(); i++) remainder += chars[i];
         words.front() = remainder;
+        suppressNextGap = true;  // remainder is the tail of this same word
       } else {
+        suppressNextGap = false;
         consumeFrontWord();
       }
     }
 
     // Phase 3: Calculate final positions for justified alignment
     bool isLastLine = words.empty();
-    int gapCount = lineWordsVec.size() - 1;
+    int gapCount = realGapCount;
     int spareSpace = pageWidth - totalWordWidth;
 
     std::vector<std::string> lineWords;
@@ -783,13 +819,16 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
         lineXPos.push_back(static_cast<int16_t>(xpos));
         lineWords.push_back(lineWordsVec[i]);
         lineWordStyles.push_back(lineWordStylesVec[i]);
-        xpos += lineWordWidths[i] + minSpacing;
+        xpos += lineWordWidths[i];
+        // Glued CJK pieces carry no gap; only real word boundaries get one.
+        if (i + 1 < lineWordsVec.size() && lineGapBefore[i + 1]) xpos += minSpacing;
       }
     } else {
       // Justified: distribute spare space evenly across gaps
       // Use fixed-point arithmetic for even distribution
       int baseSpacing = spareSpace / gapCount;
       int extraPixels = spareSpace % gapCount;  // Distribute these across first N gaps
+      int gapsEmitted = 0;
 
       int xpos = 0;
       for (size_t i = 0; i < lineWordsVec.size(); i++) {
@@ -797,9 +836,12 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
         lineWords.push_back(lineWordsVec[i]);
         lineWordStyles.push_back(lineWordStylesVec[i]);
 
-        if (i < lineWordsVec.size() - 1) {
-          int gap = baseSpacing + (static_cast<int>(i) < extraPixels ? 1 : 0);
-          xpos += lineWordWidths[i] + gap;
+        // Always advance by the token's own width; only a real word boundary also gets a gap.
+        // Glued CJK pieces must sit flush, so skipping the advance here would overlap them.
+        xpos += lineWordWidths[i];
+        if (i + 1 < lineWordsVec.size() && lineGapBefore[i + 1]) {
+          xpos += baseSpacing + (gapsEmitted < extraPixels ? 1 : 0);
+          gapsEmitted++;
         }
       }
     }

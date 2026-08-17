@@ -34,7 +34,10 @@ namespace {
 // v37 (Korean fork): header carries the Korean layout flags paragraphIndent and characterWrap.
 //      Both change line breaking and first-line indent, so they are part of the cache key.
 //      Numbered past upstream's 36 so an upstream-built cache is never read with this layout.
-constexpr uint8_t SECTION_FILE_VERSION = 37;
+// v38 (Korean fork): layoutCharacterWrap now honours wordNoSpaceBefore/wordContinues, so the
+//      per-character CJK tokens upstream 1.5.0 emits are drawn flush instead of each being
+//      charged a space gap. Every word x-position in a character-wrapped v37 cache is wrong.
+constexpr uint8_t SECTION_FILE_VERSION = 38;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
 // crash-interrupted .bin therefore carries version 0, which loadSectionFile rejects

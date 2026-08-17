@@ -27,6 +27,26 @@ The character wrap algorithm maintains consistent word spacing (1.0x - 1.5x of n
 - **Minimum Spacing**: 1.0x of normal space width (`spaceWidth`)
 - **Maximum Spacing**: 1.5x of normal space width (`spaceWidth + spaceWidth/2`)
 
+## Token input (upstream 1.5.0 and later)
+
+`ParsedText::addWord()` splits any CJK-bearing word into **one token per character** and flags
+every piece after the first with `wordNoSpaceBefore` (see `cjkCharacterBreakByteOffsets`). A
+Hangul word therefore reaches this algorithm as N glued tokens, not one word.
+
+`layoutCharacterWrap()` must consult `wordNoSpaceBefore` / `wordContinues` and treat only
+space-delimited boundaries as gaps:
+
+- **Glued token** (`wordNoSpaceBefore` or `wordContinues` set): drawn flush against the previous
+  token, contributes no gap, and is not stretched by justification.
+- **Real word boundary**: gets `minSpacing`, and is one of the gaps the justifier stretches.
+
+Charging every token a gap instead spaces out each syllable and — once justification distributes
+the spare space across those gaps — renders the whole paragraph at uniform letter spacing.
+`realGapCount` (not the token count) is therefore the gap count in every spacing formula below.
+
+Because a line of purely glued tokens has no stretchable gap, Phase 1 also needs an explicit
+width guard (`newTotalWidth <= pageWidth`) to stop filling; the spacing test alone never trips.
+
 ## Algorithm
 
 ### Phase 1: Greedy Word Collection
