@@ -630,12 +630,12 @@ bool TxtReaderActivity::loadPageAtOffset(size_t offset, bool firstLineIsParagrap
     // Track position within this source line (in bytes from pos)
     size_t lineBytePos = 0;
     bool isFirstSegmentOfSourceLine = true;
-    bool extraSpacingApplied = false;
 
     if (line.empty()) {
       // Blank source line — emit one empty visual line to preserve paragraph whitespace.
       tryAddLine("", true, isFirstSegmentOfSourceLine && sourceLineStartsParagraph, needsExtraSpacingBefore);
     } else {
+      bool extraSpacingApplied = false;
       // Word wrap if needed - use binary search for performance with SD fonts.
       // The size guard is a defensive belt-and-braces check; tryAddLine() also
       // gates on capacity and will break out when full.
