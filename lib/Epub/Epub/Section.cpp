@@ -37,7 +37,10 @@ namespace {
 // v38 (Korean fork): layoutCharacterWrap now honours wordNoSpaceBefore/wordContinues, so the
 //      per-character CJK tokens upstream 1.5.0 emits are drawn flush instead of each being
 //      charged a space gap. Every word x-position in a character-wrapped v37 cache is wrong.
-constexpr uint8_t SECTION_FILE_VERSION = 38;
+// v39 (Korean fork): layoutCharacterWrap coalesces each glued run into one token and measures with
+//      getTextAdvanceX instead of the ink-box getTextWidth, so a run is drawn in a single drawText
+//      call with its kerning and differential rounding intact. v38 positions were subtly uneven.
+constexpr uint8_t SECTION_FILE_VERSION = 39;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
 // crash-interrupted .bin therefore carries version 0, which loadSectionFile rejects

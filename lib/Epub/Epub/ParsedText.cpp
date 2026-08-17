@@ -631,24 +631,47 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
     // this same line it must sit flush against the piece before it.
     bool suppressNextGap = false;
 
-    const auto appendToLine = [&](std::string token, const int width, const EpdFontFamily::Style style,
-                                  const bool wantsGap) {
-      const bool gapBefore = !lineWordsVec.empty() && wantsGap;
-      lineWordsVec.push_back(std::move(token));
-      lineWordWidths.push_back(width);
-      lineWordStylesVec.push_back(style);
-      lineGapBefore.push_back(gapBefore);
-      if (gapBefore) realGapCount++;
-    };
-
     // Phase 1: Greedily collect words/characters to fill the line
     // Target: spacing should be between minSpacing and maxSpacing
     int totalWordWidth = 0;
 
+    // Measure the way drawText actually advances the pen: sum of glyph advances with kerning and
+    // the same differential rounding. getTextWidth() reports the ink bounding box (maxX - minX in
+    // getTextDimensions), which omits the trailing side bearing — fine for a whole word measured
+    // once, wrong for positioning consecutive pieces.
+    const auto measure = [&](const std::string& token, const EpdFontFamily::Style style) {
+      return renderer.getTextAdvanceX(fontId, token.c_str(), style);
+    };
+
+    // Appends a token to the current line and keeps totalWordWidth in sync.
+    //
+    // A glued token is concatenated onto the previous entry (same style only) instead of becoming
+    // its own entry, so drawText renders the whole run in one call. Emitting per-character entries
+    // instead makes every character start at an independently measured and independently rounded
+    // x, which drops the inter-character kerning and drawText's differential rounding — the run
+    // still looks roughly right but individual pairs come out a pixel tight or a pixel loose.
+    const auto appendToLine = [&](const std::string& token, const EpdFontFamily::Style style, const bool wantsGap) {
+      const bool gapBefore = !lineWordsVec.empty() && wantsGap;
+      if (!lineWordsVec.empty() && !gapBefore && lineWordStylesVec.back() == style) {
+        totalWordWidth -= lineWordWidths.back();
+        lineWordsVec.back() += token;
+        lineWordWidths.back() = measure(lineWordsVec.back(), style);
+        totalWordWidth += lineWordWidths.back();
+        return;
+      }
+      const int width = measure(token, style);
+      lineWordsVec.push_back(token);
+      lineWordWidths.push_back(width);
+      lineWordStylesVec.push_back(style);
+      lineGapBefore.push_back(gapBefore);
+      if (gapBefore) realGapCount++;
+      totalWordWidth += width;
+    };
+
     while (!words.empty()) {
       const std::string& word = words.front();
       const EpdFontFamily::Style wordStyle = wordStyles.front();
-      const int wordWidth = renderer.getTextWidth(fontId, word.c_str(), wordStyle);
+      const int wordWidth = measure(word, wordStyle);
 
       // Calculate what spacing would be if we add this word
       const bool wantsGap = !lineWordsVec.empty() && !suppressNextGap && frontGapBefore();
@@ -661,8 +684,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
         // First word - must add something
         if (wordWidth <= pageWidth) {
           // Whole word fits
-          appendToLine(word, wordWidth, wordStyle, false);
-          totalWordWidth = wordWidth;
+          appendToLine(word, wordStyle, false);
           suppressNextGap = false;
           consumeFrontWord();
         } else {
@@ -672,7 +694,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
           size_t charsFit = 0;
           for (size_t i = 0; i < chars.size(); i++) {
             std::string test = partial + chars[i];
-            int testWidth = renderer.getTextWidth(fontId, test.c_str(), wordStyle);
+            int testWidth = measure(test, wordStyle);
             if (testWidth > pageWidth) break;
             partial = test;
             charsFit = i + 1;
@@ -681,9 +703,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
             charsFit = 1;
             partial = chars[0];
           }
-          int partialWidth = renderer.getTextWidth(fontId, partial.c_str(), wordStyle);
-          appendToLine(partial, partialWidth, wordStyle, false);
-          totalWordWidth = partialWidth;
+          appendToLine(partial, wordStyle, false);
 
           if (charsFit < chars.size()) {
             std::string remainder;
@@ -699,8 +719,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
         // Adding this word keeps spacing >= minSpacing - add it.
         // The width guard matters for a line of glued CJK tokens: newGapCount is 0 there, so
         // newSpacing is pinned above maxSpacing and the spacing test alone would never stop.
-        appendToLine(word, wordWidth, wordStyle, wantsGap);
-        totalWordWidth = newTotalWidth;
+        appendToLine(word, wordStyle, wantsGap);
         suppressNextGap = false;
         consumeFrontWord();
 
@@ -723,16 +742,14 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
           size_t charsFit = 0;
           for (size_t i = 0; i < chars.size(); i++) {
             std::string test = partial + chars[i];
-            int testWidth = renderer.getTextWidth(fontId, test.c_str(), wordStyle);
+            int testWidth = measure(test, wordStyle);
             if (testWidth > maxPartialWidth) break;
             partial = test;
             charsFit = i + 1;
           }
 
           if (charsFit > 0) {
-            int partialWidth = renderer.getTextWidth(fontId, partial.c_str(), wordStyle);
-            appendToLine(partial, partialWidth, wordStyle, wantsGap);
-            totalWordWidth += partialWidth;
+            appendToLine(partial, wordStyle, wantsGap);
 
             if (charsFit < chars.size()) {
               std::string remainder;
@@ -766,7 +783,8 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
       // Calculate max width for partial word to keep spacing <= maxSpacing
       // (pageWidth - totalWordWidth - partialWidth) / gapCount <= maxSpacing
       // partialWidth >= pageWidth - totalWordWidth - gapCount * maxSpacing
-      int minPartialWidth = pageWidth - totalWordWidth - gapCount * maxSpacing;
+      const int minPartialWidth = pageWidth - totalWordWidth - gapCount * maxSpacing;
+      (void)minPartialWidth;  // documents the lower bound; the greedy loop below only needs the upper
       // Also ensure spacing >= minSpacing after adding
       // (pageWidth - totalWordWidth - partialWidth) / gapCount >= minSpacing
       // partialWidth <= pageWidth - totalWordWidth - gapCount * minSpacing
@@ -775,22 +793,19 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
       if (maxPartialWidth <= 0) break;  // Can't fit anything
 
       std::string partial;
-      int partialWidth = 0;
       size_t charsFit = 0;
       for (size_t i = 0; i < chars.size(); i++) {
         std::string test = partial + chars[i];
-        int testWidth = renderer.getTextWidth(fontId, test.c_str(), nextStyle);
+        int testWidth = measure(test, nextStyle);
         if (testWidth > maxPartialWidth) break;
         partial = test;
-        partialWidth = testWidth;
         charsFit = i + 1;
       }
 
       if (charsFit == 0) break;  // Can't fit any character
 
       // Add partial
-      appendToLine(partial, partialWidth, nextStyle, !suppressNextGap && frontGapBefore());
-      totalWordWidth += partialWidth;
+      appendToLine(partial, nextStyle, !suppressNextGap && frontGapBefore());
 
       if (charsFit < chars.size()) {
         std::string remainder;
