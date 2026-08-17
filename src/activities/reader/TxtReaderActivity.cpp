@@ -13,6 +13,7 @@
 #include "CrossPointState.h"
 #include "EpubReaderPercentSelectionActivity.h"
 #include "MappedInputManager.h"
+#include "ProgressFile.h"
 #include "ReaderUtils.h"
 #include "RecentBooksStore.h"
 #include "TxtReaderMenuActivity.h"
@@ -276,7 +277,12 @@ void TxtReaderActivity::loop() {
     return;
   }
 
+  // Back navigation is handled inline above (long-press -> file browser, short-press -> home) so it
+  // can also poke the reading timer; ReaderUtils::handleBackNavigation is not used here.
+  const auto touch = ReaderUtils::detectTouchPageTurn(renderer, mappedInput);
   auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
+  prevTriggered = prevTriggered || touch.prev;
+  nextTriggered = nextTriggered || touch.next;
   (void)fromTilt;  // TXT has no chapter-skip; tilt origin is informational only.
   if (!prevTriggered && !nextTriggered) {
     return;
@@ -996,7 +1002,7 @@ void TxtReaderActivity::renderStatusBar() const {
     // Mirror the EPUB reader: while auto-turn is on, override the title with
     // the current pages-per-minute rate so the user can verify it.
     title = std::string(tr(STR_AUTO_TURN_ENABLED)) + std::to_string(60UL * 1000UL / pageTurnDuration);
-  } else if (SETTINGS.statusBarTitle != CrossPointSettings::STATUS_BAR_TITLE::HIDE_TITLE) {
+  } else if (SETTINGS.statusBarSpec().showsTitle()) {
     title = txt->getTitle();
   }
   GUI.drawStatusBar(renderer, progress, estimatedCurrentPage(), estimatedTotalPages(), title);

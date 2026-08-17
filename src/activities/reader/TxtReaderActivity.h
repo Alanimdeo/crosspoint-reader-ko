@@ -112,8 +112,11 @@ class TxtReaderActivity final : public Activity {
   void jumpToPercent(int percent);
 
  public:
-  explicit TxtReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Txt> txt)
-      : Activity("TxtReader", renderer, mappedInput), txt(std::move(txt)) {}
+  explicit TxtReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Txt> txt,
+                             int initialRefreshCountdown)
+      : Activity("TxtReader", renderer, mappedInput),
+        txt(std::move(txt)),
+        pagesUntilFullRefresh(initialRefreshCountdown) {}
   void onEnter() override;
   void onExit() override;
   void loop() override;
@@ -122,5 +125,13 @@ class TxtReaderActivity final : public Activity {
   // Prevent auto-sleep while auto page-turn is running so long unattended
   // reads don't get cut off by the global inactivity timer.
   bool preventAutoSleep() override { return automaticPageTurnActive; }
+  bool handleForcedRefresh() override {
+    {
+      RenderLock lock(*this);
+      pagesUntilFullRefresh = 1;
+    }
+    requestUpdate();
+    return true;
+  }
   ScreenshotInfo getScreenshotInfo() const override;
 };

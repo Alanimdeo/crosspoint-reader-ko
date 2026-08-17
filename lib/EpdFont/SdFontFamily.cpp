@@ -257,16 +257,19 @@ void UnifiedFontFamily::getTextDimensions(const char* string, int* w, int* h, Ep
       continue;
     }
 
-    const int raiseBy = isCombining ? combiningMark::raiseAboveBase(glyph->top, glyph->height, lastBaseTop) : 0;
+    // Mirror GfxRenderer's combining-mark placement so measurement matches rendering: anchorFor
+    // pins position-sensitive marks (niqqud) and leaves the rest centered/raised.
+    const auto anchor = isCombining ? combiningMark::anchorFor(cp) : combiningMark::Anchor::CenterRaised;
+    const int raiseBy = isCombining ? combiningMark::raiseAboveBase(anchor, glyph->top, glyph->height, lastBaseTop) : 0;
 
     if (!isCombining && prevCp != 0) {
       const auto kernFP = getKerning(prevCp, cp, style);  // 4.4 fixed-point kern (primary only)
       lastBaseX += fp4::toPixel(prevAdvanceFP + kernFP);
     }
 
-    const int glyphBaseX =
-        isCombining ? combiningMark::centerOver(lastBaseX, lastBaseLeft, lastBaseWidth, glyph->left, glyph->width)
-                    : lastBaseX;
+    const int glyphBaseX = isCombining ? combiningMark::anchorOver(anchor, lastBaseX, lastBaseLeft, lastBaseWidth,
+                                                                   glyph->left, glyph->width)
+                                       : lastBaseX;
     const int glyphBaseY = 0 - raiseBy;
 
     minX = std::min(minX, glyphBaseX + glyph->left);

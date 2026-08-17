@@ -7,6 +7,7 @@
 
 #include "CrossPointSettings.h"
 #include "activities/Activity.h"
+#include "components/OptionPopup.h"
 #include "util/ButtonNavigator.h"
 
 enum class SettingType { TOGGLE, ENUM, ACTION, VALUE, STRING };
@@ -25,6 +26,8 @@ enum class SettingAction {
   SelectSleepScreens,
   FontSelection,        // Korean: pick the EPUB reader font from SD card
   SystemFontSelection,  // Korean: pick the UI system font from SD card
+  // DownloadFonts omitted: the upstream .cpfont download flow is not part of this build.
+  TextSettings,
 };
 
 struct SettingInfo {
@@ -45,6 +48,7 @@ struct SettingInfo {
   const char* key = nullptr;             // JSON API key (nullptr for ACTION types)
   StrId category = StrId::STR_NONE_OPT;  // Category for web UI grouping
   bool obfuscated = false;               // Save/load via base64 obfuscation (passwords)
+  bool inTextSettings = false;           // Surfaced in the Text Settings screen; hidden from the flat Reader list
 
   // Direct char[] string fields (for settings stored in CrossPointSettings)
   size_t stringOffset = 0;
@@ -58,6 +62,11 @@ struct SettingInfo {
 
   SettingInfo& withObfuscated() {
     obfuscated = true;
+    return *this;
+  }
+
+  SettingInfo& withTextSettings() {
+    inTextSettings = true;
     return *this;
   }
 
@@ -160,6 +169,8 @@ class SettingsActivity final : public Activity {
 
   bool preserveQuickResumeTimeoutOn = false;
   bool quickResumeTimeoutAutoEnabled = false;
+
+  OptionPopup optionPopup;
 
   static constexpr int categoryCount = 4;
   static const StrId categoryNames[categoryCount];

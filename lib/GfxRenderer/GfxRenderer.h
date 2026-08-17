@@ -15,6 +15,7 @@ enum class BidiBaseDir : signed char { AUTO = -1, LTR = 0, RTL = 1 };
 class FontCacheManager;
 
 #include <cstring>
+#include <deque>
 #include <map>
 #include <memory>
 #include <string>
@@ -87,6 +88,12 @@ class GfxRenderer {
   void drawPixelDither(int x, int y) const;
   template <Color color>
   void fillArc(int maxRadius, int cx, int cy, int xDir, int yDir) const;
+  // Byte-aligned, orientation-specialized rectangle fill. Rotates the rect's
+  // two opposing corners into physical-framebuffer space once, then walks each
+  // physical row with head-mask / middle memset / tail-mask byte writes — no
+  // per-pixel rotation, no per-pixel RMW.
+  template <Color color>
+  void fillRectImpl(int x, int y, int width, int height) const;
 
  public:
   explicit GfxRenderer(HalDisplay& halDisplay)
@@ -150,7 +157,19 @@ class GfxRenderer {
   // Screen ops
   int getScreenWidth() const;
   int getScreenHeight() const;
+  void tapToLogical(float nx, float ny, int& outX, int& outY) const;
   void displayBuffer(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH) const;
+  // Non-blocking refresh: starts the waveform and returns so CPU work (e.g.
+  // grayscale strip rendering) can overlap the panel's refresh time. The
+  // framebuffer must stay untouched until waitRefreshComplete(). Falls back to
+  // a blocking refresh when fadingFix is enabled or the panel lacks deferral
+  // support. See HalDisplay::displayBufferAsync for the baseline contract.
+  void displayBufferAsync(HalDisplay::RefreshMode refreshMode = HalDisplay::FAST_REFRESH) const;
+  void waitRefreshComplete() const;
+  // True when displayBufferAsync() genuinely overlaps: panel defers and
+  // fadingFix isn't forcing the blocking path. Callers can skip overlap
+  // scaffolding (e.g. whole-plane grayscale buffers) when false.
+  bool supportsAsyncRefresh() const;
   // EXPERIMENTAL: Windowed update - display only a rectangular region
   // void displayWindow(int x, int y, int width, int height) const;
   void invertScreen() const;
@@ -199,11 +218,20 @@ class GfxRenderer {
   void fillRoundedRect(int x, int y, int width, int height, int cornerRadius, bool roundTopLeft, bool roundTopRight,
                        bool roundBottomLeft, bool roundBottomRight, Color color) const;
   void drawImage(const uint8_t bitmap[], int x, int y, int width, int height) const;
-  void drawIcon(const uint8_t bitmap[], int x, int y, int width, int height) const;
+  void drawIcon(const uint8_t bitmap[], int x, int y, int size) const;
   void drawBitmap(const Bitmap& bitmap, int x, int y, int maxWidth, int maxHeight, float cropX = 0,
                   float cropY = 0) const;
   void drawBitmap1Bit(const Bitmap& bitmap, int x, int y, int maxWidth, int maxHeight) const;
   void fillPolygon(const int* xPoints, const int* yPoints, int numPoints, bool state = true) const;
+
+  // Snapshot / restore a screen-coordinate framebuffer region (byte-aligned in
+  // panel memory). readFramebufferRegion returns the bytes written to dst, or
+  // 0 when the region is empty, offscreen, or exceeds dstCapacity. Pass the
+  // same rectangle to writeFramebufferRegion to restore the saved pixels.
+  // Enables partial-repaint patterns (e.g. moving a selection highlight)
+  // without re-rendering the whole page.
+  size_t readFramebufferRegion(int x, int y, int w, int h, uint8_t* dst, size_t dstCapacity) const;
+  void writeFramebufferRegion(int x, int y, int w, int h, const uint8_t* src);
 
   // Text
   int getTextWidth(int fontId, const char* text, EpdFontFamily::Style style = EpdFontFamily::REGULAR,
@@ -227,6 +255,7 @@ class GfxRenderer {
   int getTextAdvanceX(int fontId, const char* text, EpdFontFamily::Style style) const;
   int getFontAscenderSize(int fontId) const;
   int getLineHeight(int fontId) const;
+  int getLineHeight(int fontId, float compression) const;
   std::string truncatedText(int fontId, const char* text, int maxWidth,
                             EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
   /// Word-wrap \p text into at most \p maxLines lines, each no wider than
@@ -243,6 +272,16 @@ class GfxRenderer {
   // Grayscale functions
   void setRenderMode(const RenderMode mode) { this->renderMode = mode; }
   RenderMode getRenderMode() const { return renderMode; }
+  // Grayscale preconditioning settle pass (no-op on X4). The rect overload
+  // takes the gray region in LOGICAL screen coordinates and rotates it to the
+  // panel; the no-arg overload settles the full frame. Call after the BW base
+  // frame is displayed and before the grayscale planes are written.
+  void preconditionGrayscale() const;
+  void preconditionGrayscale(int x, int y, int w, int h) const;
+  // Display the framebuffer as the base frame for a grayscale overlay that
+  // follows (X3: OEM differential base waveform; others: plain display with
+  // `fallback`).
+  void displayGrayscaleBase(HalDisplay::RefreshMode fallback = HalDisplay::HALF_REFRESH) const;
   void copyGrayscaleLsbBuffers() const;
   void copyGrayscaleMsbBuffers() const;
   void displayGrayBuffer() const;
@@ -258,6 +297,34 @@ class GfxRenderer {
 
   // Font helpers
   const uint8_t* getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const;
+
+  // Lend the 48 KB framebuffer's bytes to a memory-hungry phase (chapter
+  // builds) WITHOUT freeing the allocation, so it never moves and repeated
+  // loans cannot fragment the heap. Between release and restore NOTHING may
+  // draw or display — the panel keeps showing its last refreshed image. The
+  // lent bytes are published via buildscratch::claim() for consumers like
+  // InflateStream. restore returns the buffer white, so the caller must
+  // redraw the full screen; it cannot fail (no allocation involved).
+  void releaseFrameBufferForBuild();
+  bool restoreFrameBufferAfterBuild();
+  bool hasFrameBuffer() const { return frameBuffer != nullptr; }
+
+  // RAII form of the loan above, for blocking build regions with early-return
+  // error paths: restores on scope exit (or explicitly via end()). Display the
+  // popup/screen the panel should hold BEFORE constructing one. Constructing
+  // while the framebuffer is already lent yields an inert loan (nesting-safe).
+  class FrameBufferLoan {
+   public:
+    explicit FrameBufferLoan(GfxRenderer& renderer);
+    ~FrameBufferLoan() { end(); }
+    void end();
+    FrameBufferLoan(const FrameBufferLoan&) = delete;
+    FrameBufferLoan& operator=(const FrameBufferLoan&) = delete;
+
+   private:
+    GfxRenderer& renderer_;
+    bool active_ = false;
+  };
 
   // Low level functions
   uint8_t* getFrameBuffer() const;

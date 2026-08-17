@@ -2,9 +2,8 @@
 
 // clang-format off
 // HttpDownloader.h pulls Arduino/SdFat, whose macros collide with lwip's
-// ip4_addr.h unless seen before esp_http_client (which includes lwip). Pin this
-// order; clang-format would otherwise sort the local header last and break the
-// build.
+// ip4_addr.h unless seen first. Pin this order; clang-format would otherwise sort
+// the local header last and break the build.
 #include "HttpDownloader.h"
 #include "FirmwareFlasher.h"
 #include <Arduino.h>
