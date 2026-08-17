@@ -13,6 +13,32 @@
 
 HalPowerManager powerManager;  // Singleton instance
 
+namespace {
+
+// Korean-build correction for the ADC battery path (X4). The SDK's voltage->percent polynomial
+// only returns 100% at >= 4.136 V, but a fully charged cell read through the 2:1 divider on GPIO0
+// measures ~4.06 V because of the ESP32-C3 ADC gain error, so a full device tops out near 91%.
+//
+// Only the top of the curve is stretched onto 100%; anything at or below the knee is passed
+// through untouched so low-battery reporting keeps the SDK's calibration. To retune, charge to
+// full, read the raw percentage from the "PWR" log line, and set OBSERVED_FULL to it.
+//
+// Not applied to the I2C gauge path (X3, X4 Pro, LilyGo): those report true SoC from a fuel gauge.
+constexpr uint16_t BATTERY_SCALE_KNEE = 80;
+constexpr uint16_t BATTERY_OBSERVED_FULL = 91;
+
+uint16_t scaleAdcBatteryPercent(const uint16_t raw) {
+  static_assert(BATTERY_OBSERVED_FULL > BATTERY_SCALE_KNEE, "knee must sit below the observed full");
+  if (raw <= BATTERY_SCALE_KNEE) return raw;
+  if (raw >= BATTERY_OBSERVED_FULL) return 100;
+  constexpr uint32_t inSpan = BATTERY_OBSERVED_FULL - BATTERY_SCALE_KNEE;
+  constexpr uint32_t outSpan = 100 - BATTERY_SCALE_KNEE;
+  const uint32_t scaled = ((raw - BATTERY_SCALE_KNEE) * outSpan + inSpan / 2) / inSpan;
+  return static_cast<uint16_t>(BATTERY_SCALE_KNEE + scaled);
+}
+
+}  // namespace
+
 void HalPowerManager::begin() {
   if (BoardConfig::ACTIVE.batteryAdc >= 0) {
     pinMode(BoardConfig::ACTIVE.batteryAdc, INPUT);
@@ -108,11 +134,19 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
     return _batteryCachedPercent;
   }
 
-  // smooth the battery %.
+  // smooth the battery %. Scale before smoothing so the EMA runs on the corrected curve.
+  const uint16_t raw = battery.readPercentage();
+  const uint16_t corrected = scaleAdcBatteryPercent(raw);
   if (_batteryCachedPercent == 0) {
-    _batteryCachedPercent = 10 * battery.readPercentage();
+    _batteryCachedPercent = 10 * corrected;
   } else {
-    _batteryCachedPercent = (_batteryCachedPercent * 9 + battery.readPercentage() * 10) / 10;
+    _batteryCachedPercent = (_batteryCachedPercent * 9 + corrected * 10) / 10;
+  }
+  // Log only on change: this runs on every status-bar draw, several times per render.
+  static int lastLogged = -1;
+  if (_batteryCachedPercent / 10 != lastLogged) {
+    lastLogged = _batteryCachedPercent / 10;
+    LOG_DBG("PWR", "Battery: raw=%u%% corrected=%u%% shown=%d%%", raw, corrected, lastLogged);
   }
   return _batteryCachedPercent / 10;
 }
