@@ -237,17 +237,26 @@ void TxtReaderActivity::loop() {
     return;
   }
 
-  // Long press BACK (1s+) goes to file selection
-  if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= ReaderUtils::GO_HOME_MS) {
-    activityManager.goToFileBrowser(txt ? txt->getPath() : "");
+  // Back navigation. Same targets as ReaderUtils::handleBackNavigation (short and long press swap
+  // per backShortToFileBrowser), inlined so this path can also poke the reading timer.
+  if (mappedInput.isPressed(MappedInputManager::Button::Back) &&
+      mappedInput.getHeldTime() >= ReaderUtils::GO_BACK_OR_HOME_MS) {
+    readingTimer.notifyInput();
+    if (SETTINGS.backShortToFileBrowser) {
+      onGoHome();
+    } else {
+      activityManager.goToFileBrowser(txt ? txt->getPath() : "");
+    }
     return;
   }
-
-  // Short press BACK goes directly to home
   if (mappedInput.wasReleased(MappedInputManager::Button::Back) &&
-      mappedInput.getHeldTime() < ReaderUtils::GO_HOME_MS) {
+      mappedInput.getHeldTime() < ReaderUtils::GO_BACK_OR_HOME_MS) {
     readingTimer.notifyInput();
-    onGoHome();
+    if (SETTINGS.backShortToFileBrowser) {
+      activityManager.goToFileBrowser(txt ? txt->getPath() : "");
+    } else {
+      onGoHome();
+    }
     return;
   }
 
@@ -277,8 +286,6 @@ void TxtReaderActivity::loop() {
     return;
   }
 
-  // Back navigation is handled inline above (long-press -> file browser, short-press -> home) so it
-  // can also poke the reading timer; ReaderUtils::handleBackNavigation is not used here.
   const auto touch = ReaderUtils::detectTouchPageTurn(renderer, mappedInput);
   auto [prevTriggered, nextTriggered, fromTilt] = ReaderUtils::detectPageTurn(mappedInput);
   prevTriggered = prevTriggered || touch.prev;

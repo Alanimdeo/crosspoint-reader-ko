@@ -276,10 +276,9 @@ void EpubReaderActivity::openReaderMenu() {
     bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
   }
   const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
-  // Snapshot every layout-affecting setting + orientation before opening the menu. The menu hosts
-  // Reader Options as a sub-activity, so changes arrive by two routes (the menu's inline rotate
-  // cycle, and Reader Options writing SETTINGS directly). Reconciling both here means the user
-  // sees a single re-layout on menu exit instead of one per setting touched.
+  // Snapshot every layout-affecting setting before opening the menu. Changes arrive by two routes
+  // (the menu's rotate cycle, and Reader Options writing SETTINGS directly); reconciling both on
+  // exit means one re-layout instead of one per setting touched.
   const uint8_t menuOrientationSnapshot = SETTINGS.orientation;
   const uint8_t menuLineSpacing = SETTINGS.lineSpacing;
   const uint8_t menuScreenMargin = SETTINGS.screenMargin;
@@ -327,9 +326,8 @@ void EpubReaderActivity::openReaderMenu() {
               menuTextAntiAliasing != SETTINGS.textAntiAliasing || menuImageRendering != SETTINGS.imageRendering ||
               menuHyphenation != SETTINGS.hyphenationEnabled || menuFontId != SETTINGS.getReaderFontId();
           if (layoutChanged) {
-            // Preserve the reading position across the reflow: record the content offset of the
-            // current page so applyDeferredReposition() can land on the same text once the
-            // section is rebuilt at the new spec (upstream's offset-based reposition).
+            // Record the content offset so applyDeferredReposition() lands on the same text once
+            // the section is rebuilt at the new spec.
             RenderLock lock(*this);
             if (section) {
               rememberCurrentContentOffset();
@@ -645,22 +643,35 @@ void EpubReaderActivity::loop() {
     }
   }
 
-  // Short press Back restores position when viewing a footnote (takes priority over navigation)
+  // Short press Back restores position when viewing a footnote, ahead of either navigation target.
   if (footnoteDepth > 0 && mappedInput.wasReleased(MappedInputManager::Button::Back) &&
       mappedInput.getHeldTime() < ReaderUtils::GO_BACK_OR_HOME_MS) {
+    readingTimer.notifyInput();
     restoreSavedPosition();
     return;
   }
 
-  // Short press BACK goes directly to home (or restores position if viewing footnote)
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back) &&
-      mappedInput.getHeldTime() < ReaderUtils::GO_HOME_MS) {
+  // Back navigation. Same targets as ReaderUtils::handleBackNavigation (short and long press swap
+  // per backShortToFileBrowser), inlined because the footnote check above must win and this path
+  // also pokes the reading timer.
+  if (mappedInput.isPressed(MappedInputManager::Button::Back) &&
+      mappedInput.getHeldTime() >= ReaderUtils::GO_BACK_OR_HOME_MS) {
     readingTimer.notifyInput();
-    if (footnoteDepth > 0) {
-      restoreSavedPosition();
-      return;
+    if (SETTINGS.backShortToFileBrowser) {
+      onGoHome();
+    } else {
+      activityManager.goToFileBrowser(epub ? epub->getPath() : "");
     }
-    onGoHome();
+    return;
+  }
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back) &&
+      mappedInput.getHeldTime() < ReaderUtils::GO_BACK_OR_HOME_MS) {
+    readingTimer.notifyInput();
+    if (SETTINGS.backShortToFileBrowser) {
+      activityManager.goToFileBrowser(epub ? epub->getPath() : "");
+    } else {
+      onGoHome();
+    }
     return;
   }
 

@@ -31,15 +31,11 @@ namespace {
 //      match. Keeps <br>-per-paragraph books (common CJK formatting) from
 //      re-adding container spacing at every paragraph.
 // v35: Persist a uint32_t visible-text start offset for every page.
-// v37 (Korean fork): header carries the Korean layout flags paragraphIndent and characterWrap.
-//      Both change line breaking and first-line indent, so they are part of the cache key.
-//      Numbered past upstream's 36 so an upstream-built cache is never read with this layout.
-// v38 (Korean fork): layoutCharacterWrap now honours wordNoSpaceBefore/wordContinues, so the
-//      per-character CJK tokens upstream 1.5.0 emits are drawn flush instead of each being
-//      charged a space gap. Every word x-position in a character-wrapped v37 cache is wrong.
-// v39 (Korean fork): layoutCharacterWrap coalesces each glued run into one token and measures with
-//      getTextAdvanceX instead of the ink-box getTextWidth, so a run is drawn in a single drawText
-//      call with its kerning and differential rounding intact. v38 positions were subtly uneven.
+// v37 (KO): header carries paragraphIndent and characterWrap; both are part of the cache key.
+//      Numbered past upstream's 36 so an upstream cache is never read with this layout.
+// v38 (KO): layoutCharacterWrap honours wordNoSpaceBefore, so glued CJK tokens are drawn flush.
+// v39 (KO): glued runs are coalesced into one token and measured by advance, restoring their
+//      kerning and rounding.
 constexpr uint8_t SECTION_FILE_VERSION = 39;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /

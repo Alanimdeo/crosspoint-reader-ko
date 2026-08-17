@@ -268,17 +268,14 @@ ReaderRenderSpec CrossPointSettings::readerRenderSpec(const uint16_t viewportWid
   spec.focusReadingEnabled = focusReadingEnabled != 0;
   spec.paragraphIndent = paragraphIndent != 0;
   spec.characterWrap = characterWrap != 0;
-  // Korean: hyphenation only applies in word-wrap mode. In character-wrap mode a line can break
-  // anywhere, so there is nothing to hyphenate and inserting hyphens would be wrong.
+  // Hyphenation only applies in word-wrap mode: character wrap can break anywhere already.
   spec.hyphenationEnabled = hyphenationEnabled != 0 && characterWrap == 0;
   return spec;
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
-  // Korean line spacing: identical for the default KoPub Batang flash font AND any SD .epdfont
-  // reader font. The upstream font-family-conditional values (NotoSerif/NotoSans) are not used in
-  // the Korean build — every reader font gets the same Korean line-height multiplier so line
-  // spacing matches 1.2.0-ko regardless of which font is selected.
+  // Every reader font gets the same Korean multiplier, so spacing matches 1.2.0-ko whichever font
+  // is selected. Upstream's per-family values are not used here.
   switch (lineSpacing) {
     case TIGHT:
       return 1.00f;
@@ -321,11 +318,9 @@ void CrossPointSettings::clearSdFontFamily() {
 }
 
 int CrossPointSettings::getReaderFontId() const {
-  // When a custom SD reader font is set, the reader must render with the same id the font was
-  // registered under (CUSTOM_FONT_ID). CUSTOM_FONT_ID is also the cache-invalidation key, so
-  // switching custom fonts naturally invalidates section caches. Otherwise the built-in KoPub.
-  // Upstream's built-in NotoSerif/NotoSans families are not loaded in the Korean build, so
-  // fontFamily/fontPointSize do not select a reader font here — they persist for compatibility.
+  // A custom SD font renders under the id it was registered with (CUSTOM_FONT_ID), which is also
+  // the cache key, so switching fonts invalidates section caches. fontFamily/fontPointSize select
+  // nothing here: upstream's built-in families are not loaded in this build.
   return hasCustomFont() ? CUSTOM_FONT_ID : KOPUB_14_FONT_ID;
 }
 

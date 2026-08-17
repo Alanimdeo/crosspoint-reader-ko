@@ -602,14 +602,9 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
     eraseVisibleOffsetPrefix(1);
   };
 
-  // Whether the front token needs a real word gap before it.
-  //
-  // Upstream 1.5.0 splits every CJK-bearing word into one token per character (see
-  // cjkCharacterBreakByteOffsets in addWord) and flags the pieces wordNoSpaceBefore, so a
-  // Hangul word arrives here as N glued tokens rather than one. Those pieces must be drawn
-  // flush against each other: charging each one a space gap — and then justifying across
-  // those gaps — spaces out every syllable and renders the paragraph at uniform letter
-  // spacing. Only genuinely space-delimited boundaries are gaps.
+  // addWord() splits every CJK-bearing word into one token per character and flags the pieces
+  // wordNoSpaceBefore, so a Hangul word arrives as N glued tokens. Charging each a space gap
+  // spaces out every syllable, so only space-delimited boundaries count as gaps.
   const auto frontGapBefore = [this]() {
     const bool continues = !wordContinues.empty() && wordContinues.front();
     const bool noSpace = !wordNoSpaceBefore.empty() && wordNoSpaceBefore.front();
@@ -635,21 +630,15 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
     // Target: spacing should be between minSpacing and maxSpacing
     int totalWordWidth = 0;
 
-    // Measure the way drawText actually advances the pen: sum of glyph advances with kerning and
-    // the same differential rounding. getTextWidth() reports the ink bounding box (maxX - minX in
-    // getTextDimensions), which omits the trailing side bearing — fine for a whole word measured
-    // once, wrong for positioning consecutive pieces.
+    // Advance, not ink box: getTextWidth() omits the trailing side bearing, which is fine for a
+    // whole word measured once but wrong for positioning consecutive pieces.
     const auto measure = [&](const std::string& token, const EpdFontFamily::Style style) {
       return renderer.getTextAdvanceX(fontId, token.c_str(), style);
     };
 
-    // Appends a token to the current line and keeps totalWordWidth in sync.
-    //
-    // A glued token is concatenated onto the previous entry (same style only) instead of becoming
-    // its own entry, so drawText renders the whole run in one call. Emitting per-character entries
-    // instead makes every character start at an independently measured and independently rounded
-    // x, which drops the inter-character kerning and drawText's differential rounding — the run
-    // still looks roughly right but individual pairs come out a pixel tight or a pixel loose.
+    // Appends a token and keeps totalWordWidth in sync. Glued tokens are concatenated onto the
+    // previous entry (same style only) so drawText renders the run in one call; separate entries
+    // would each be rounded independently and lose the inter-character kerning.
     const auto appendToLine = [&](const std::string& token, const EpdFontFamily::Style style, const bool wantsGap) {
       const bool gapBefore = !lineWordsVec.empty() && wantsGap;
       if (!lineWordsVec.empty() && !gapBefore && lineWordStylesVec.back() == style) {
@@ -914,9 +903,8 @@ int ParsedText::resolveFirstLineIndent(const bool isFirstLine, const GfxRenderer
     }
     return 0;
   }
-  // Upstream's implicit fallback indent. Skipped when the Korean paragraphIndent setting is on:
-  // applyParagraphIndent() already prefixes the first word with U+3000, and applying both would
-  // double-indent every paragraph.
+  // Skipped when paragraphIndent is on: applyParagraphIndent() already prefixes U+3000, and both
+  // together double-indent every paragraph.
   if (!extraParagraphSpacing && !paragraphIndent) {
     return renderer.getSpaceWidth(fontId, EpdFontFamily::REGULAR) * 3;
   }

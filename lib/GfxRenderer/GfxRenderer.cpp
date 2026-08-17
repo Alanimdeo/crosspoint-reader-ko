@@ -178,10 +178,8 @@ int GfxRenderer::getEffectiveFontId(const int fontId) const {
   return fontId;
 }
 
-// Upstream's resolveTextFontId() (whole-string reroute to a size-matched SD "CJK fallback" font)
-// is not carried in the Korean build: UnifiedFontFamily resolves missing glyphs per glyph via
-// setGlyphFallback(), and getEffectiveFontId() handles the whole-UI system-font redirect. See
-// GfxRenderer.h for both.
+// Upstream's resolveTextFontId() is not carried here: UnifiedFontFamily resolves missing glyphs
+// per glyph via setGlyphFallback(), and getEffectiveFontId() handles the UI system-font redirect.
 
 // Translate logical (x,y) coordinates to physical panel coordinates based on current orientation
 // This should always be inlined for better performance

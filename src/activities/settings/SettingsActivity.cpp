@@ -45,13 +45,9 @@ void SettingsActivity::rebuildSettingsLists() {
     if (setting.category == StrId::STR_CAT_DISPLAY) {
       displaySettings.push_back(setting);
     } else if (setting.category == StrId::STR_CAT_READER) {
-      // No inTextSettings filter here, unlike upstream. Upstream hides these entries from the flat
-      // Reader list because its TextSettingsActivity screen hosts them instead; this build does not
-      // carry that screen (its Family/Size tabs are tied to the cpfont registry, and ReaderOptions
-      // already covers the same settings), so filtering them would leave line spacing, margin,
-      // alignment, embedded style, hyphenation, paragraph spacing/indent, character wrap and
-      // anti-aliasing unreachable from Settings. The SettingInfo::withTextSettings() markers are
-      // kept in SettingsList.h so restoring that screen stays a one-line change here.
+      // Deliberately no inTextSettings filter: this build drops upstream's TextSettingsActivity,
+      // so filtering would leave those ten entries unreachable from Settings. The
+      // withTextSettings() markers stay in SettingsList.h to keep restoring it a one-line change.
       readerSettings.push_back(setting);
     } else if (setting.category == StrId::STR_CAT_CONTROLS) {
       if (setting.valuePtr == &CrossPointSettings::pwrBtnFootnoteBack &&
