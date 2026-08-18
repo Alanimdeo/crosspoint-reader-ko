@@ -3,7 +3,8 @@
  * name: kopub_14_regular
  * size: 14
  * mode: 2-bit
- * Command used: lib/EpdFont/scripts/fontconvert.py kopub_14_regular 14 lib/EpdFont/builtinFonts/source/KoPub-Batang/KoPub Batang Light.ttf --2bit --additional-intervals 0x1100,0x11FF --additional-intervals 0x3000,0x303F --additional-intervals 0x3130,0x318F --additional-intervals 0x4E00,0x9FFF --additional-intervals 0xAC00,0xD7A3
+ * Command used: lib/EpdFont/scripts/convert-korean-builtin-fonts.sh
+ * Hangul coverage: full block; Hanja: the 4,620 the typeface ships.
  */
 #pragma once
 #include "EpdFontData.h"
