@@ -47,6 +47,20 @@ the spare space across those gaps — renders the whole paragraph at uniform let
 Because a line of purely glued tokens has no stretchable gap, Phase 1 also needs an explicit
 width guard (`newTotalWidth <= pageWidth`) to stop filling; the spacing test alone never trips.
 
+### Which gap count the fill phases use
+
+Phases 1 and 2 decide whether *another* token still fits, so every formula there budgets against
+the gaps the line will have **after** that token lands — `fillGapCount(wantsGap)`, i.e.
+`realGapCount + 1` at a real word boundary and `realGapCount` for a glued token. Phase 3 is the
+only place that uses `realGapCount` on its own, because by then the line is final.
+
+1.2/1.3-ko spelled the same quantity as `lineWordsVec.size()`: on a space-delimited line every
+token carried a gap, so the token count *was* the post-add gap count. Substituting the plain
+`realGapCount` there measures the line against a gap that does not exist yet, which reads a line
+already sitting near 1.75x space width as over `maxSpacing`; Phase 2 then drags one more character
+in and justification collapses the word gaps back to ~1.0x. That is a visibly tighter page — about
+three characters per page — even though nothing about the width measurement changed.
+
 ## Algorithm
 
 ### Phase 1: Greedy Word Collection
@@ -96,10 +110,11 @@ partialWidth <= pageWidth - totalWordWidth - gapCount * minSpacing
 
 ### Phase 3: Calculate Justified Positions
 
-Distribute spare space evenly across word gaps:
+Distribute spare space evenly across word gaps. Unlike Phases 1 and 2, this uses `realGapCount`
+directly — the line is final, so there is no pending token to budget a gap for:
 
 ```
-gapCount = wordCount - 1
+gapCount = realGapCount
 spareSpace = pageWidth - totalWordWidth
 baseSpacing = spareSpace / gapCount
 extraPixels = spareSpace % gapCount  # Distribute to first N gaps

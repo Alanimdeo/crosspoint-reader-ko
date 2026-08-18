@@ -659,6 +659,15 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
       totalWordWidth += width;
     };
 
+    // Gap count the fill decisions must budget against: the gaps this line will have *after* the
+    // token under consideration lands, not the gaps it has right now. 1.2/1.3-ko spelled this as
+    // lineWordsVec.size(), which on a space-delimited line is exactly realGapCount + 1.
+    // Measuring the line against realGapCount alone judges it by a gap that is about to exist,
+    // so a line already sitting at ~1.75x space width reads as over maxSpacing and the filler
+    // drags one more character in -- the 1.5.0-ko tightening. Glued CJK tokens bring no gap and
+    // so keep the current count, which is what makes them sit flush.
+    const auto fillGapCount = [&](const bool wantsGap) { return realGapCount + (wantsGap ? 1 : 0); };
+
     while (!words.empty()) {
       const std::string& word = words.front();
       const EpdFontFamily::Style wordStyle = wordStyles.front();
@@ -667,7 +676,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
       // Calculate what spacing would be if we add this word
       const bool wantsGap = !lineWordsVec.empty() && !suppressNextGap && frontGapBefore();
       int newTotalWidth = totalWordWidth + wordWidth;
-      int newGapCount = realGapCount + (wantsGap ? 1 : 0);  // stretchable gaps after adding
+      int newGapCount = fillGapCount(wantsGap);  // stretchable gaps after adding
       int newSpareSpace = pageWidth - newTotalWidth;
       int newSpacing = (newGapCount > 0) ? (newSpareSpace / newGapCount) : maxSpacing + 1;
 
@@ -722,7 +731,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
       } else {
         // Adding whole word would make spacing < minSpacing
         // Try to add partial characters from this word
-        int currentGapCount = realGapCount;
+        int currentGapCount = fillGapCount(wantsGap);
         // We want: (pageWidth - totalWordWidth - partialWidth) / currentGapCount >= minSpacing
         // So: partialWidth <= pageWidth - totalWordWidth - currentGapCount * minSpacing
         int maxPartialWidth = pageWidth - totalWordWidth - currentGapCount * minSpacing;
@@ -760,7 +769,8 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
 
     // Phase 2: Check if spacing is too large, fill with more characters
     while (!words.empty() && lineWordsVec.size() >= 1) {
-      int gapCount = realGapCount;
+      const bool nextWantsGap = !suppressNextGap && frontGapBefore();
+      int gapCount = fillGapCount(nextWantsGap);
       int spareSpace = pageWidth - totalWordWidth;
       int spacing = (gapCount > 0) ? (spareSpace / gapCount) : 0;
 
@@ -796,7 +806,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
       if (charsFit == 0) break;  // Can't fit any character
 
       // Add partial
-      appendToLine(partial, nextStyle, !suppressNextGap && frontGapBefore());
+      appendToLine(partial, nextStyle, nextWantsGap);
 
       if (charsFit < chars.size()) {
         std::string remainder;
