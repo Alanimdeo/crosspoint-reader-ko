@@ -38,7 +38,7 @@ namespace {
 // v40 (KO): run widths are measured by ink box again, so word spacing matches 1.3.0-ko density.
 // v41 (KO): the fill phases budget the post-add gap count again (1.2/1.3-ko's lineWordsVec.size()),
 //      so lines break where they did in 1.3.0-ko instead of one character later.
-constexpr uint8_t SECTION_FILE_VERSION = 41;
+constexpr uint8_t SECTION_FILE_VERSION = 42;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
 // crash-interrupted .bin therefore carries version 0, which loadSectionFile rejects

@@ -90,11 +90,18 @@ if (parsedSize != fileSize) {
 
 ## `section.bin`
 
-### Version 35
+### Version 42
 
 Each file in `sections/*.bin` stores one laid-out spine section. The header is
 also the cache-busting key: if any layout-affecting setting differs from the
 current reader settings, the section is discarded and rebuilt.
+
+Version 42 is binary-identical to version 41. The bump is a cache invalidation:
+character-wrap layout no longer discards the tokens of a trailing line that a
+soft flush suppressed, so sections built by 1.5.0-ko.2 and earlier can be
+missing a line of text mid-paragraph and must be rebuilt.
+
+Versions 36-41 arrived with the upstream 1.5.0 merge and are not itemised here.
 
 Version 35 adds a header offset and a `uint32_t` entry per page for the
 visible-text offset LUT. The other section LUTs remain unchanged.
