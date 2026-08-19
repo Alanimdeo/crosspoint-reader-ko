@@ -584,34 +584,65 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
   const int minSpacing = spaceWidth;
   const int maxSpacing = spaceWidth + (spaceWidth / 2);  // 1.5x
 
-  // Add paragraph indent to first word
-  if ((blockStyle.alignment == CssTextAlign::Justify || blockStyle.alignment == CssTextAlign::Left) &&
-      paragraphIndent && !words.empty()) {
-    words.front().insert(0, "\xe3\x80\x80");  // U+3000 ideographic space
-  }
+  // The paragraph indent is applied by applyParagraphIndent(), which layoutAndExtractLines() runs
+  // before dispatching here. Inserting it again would double-indent every paragraph.
 
-  // Consume one whole word off the front, keeping every per-token side array aligned.
-  // Partially consumed words are left in place (words.front() holds the remainder), so their
-  // entries must stay too — only fully consumed words are erased here.
-  const auto consumeFrontWord = [this]() {
-    words.erase(words.begin());
-    if (!wordStyles.empty()) wordStyles.erase(wordStyles.begin());
-    if (!wordContinues.empty()) wordContinues.erase(wordContinues.begin());
-    if (!wordNoSpaceBefore.empty()) wordNoSpaceBefore.erase(wordNoSpaceBefore.begin());
-    if (!wordIsFocusSuffix.empty()) wordIsFocusSuffix.erase(wordIsFocusSuffix.begin());
-    eraseVisibleOffsetPrefix(1);
+  // Tokens are NOT erased as they are placed. A soft flush (see ChapterHtmlSlimParser) calls this
+  // with includeLastLine = false, meaning "lay out everything except the trailing partial line and
+  // leave that text for the next chunk". Consuming up front made that text unrecoverable: the line
+  // was skipped at emit time but its tokens were already gone, so a whole line of the paragraph
+  // vanished. Instead `consumed` counts what the current line has taken and the arrays are only
+  // trimmed once the line is actually emitted (commitLine below).
+  size_t consumed = 0;
+  bool hasRemainder = false;  // a token was split; remainderText is its unplaced tail
+  std::string remainderText;
+
+  // The unplaced text at the cursor: the tail of a split token when there is one, else the next
+  // whole token.
+  // Callers bind this by reference, so when hasRemainder is set the reference aliases
+  // remainderText: assigning a new remainder mutates the string the caller is holding. Every split
+  // site below therefore copies out of it (splitUtf8Chars) before reassigning, and reads nothing
+  // from it afterwards.
+  const auto frontWord = [&]() -> const std::string& { return hasRemainder ? remainderText : words[consumed]; };
+  const auto frontExhausted = [&]() { return !hasRemainder && consumed >= words.size(); };
+
+  // The parallel arrays are filled alongside words, but the erase they used to get was guarded by
+  // a non-empty check rather than a length check, so treat a short array as "no entry" instead of
+  // indexing past its end.
+  const auto frontStyle = [&]() {
+    return consumed < wordStyles.size() ? wordStyles[consumed] : EpdFontFamily::REGULAR;
   };
 
   // addWord() splits every CJK-bearing word into one token per character and flags the pieces
   // wordNoSpaceBefore, so a Hangul word arrives as N glued tokens. Charging each a space gap
   // spaces out every syllable, so only space-delimited boundaries count as gaps.
-  const auto frontGapBefore = [this]() {
-    const bool continues = !wordContinues.empty() && wordContinues.front();
-    const bool noSpace = !wordNoSpaceBefore.empty() && wordNoSpaceBefore.front();
-    return !continues && !noSpace;
+  const auto frontGapBefore = [&]() {
+    if (consumed >= wordContinues.size() || consumed >= wordNoSpaceBefore.size()) return true;
+    return !wordContinues[consumed] && !wordNoSpaceBefore[consumed];
   };
 
-  while (!words.empty()) {
+  // Trim everything the emitted line took, leaving any split tail at the new front, and rewind the
+  // cursor to it. The rewind is not optional: the cursor indexes arrays this call is about to
+  // shorten, so leaving it where it was makes the next line read tokens N ahead and then erase a
+  // range running past end() -- heap corruption, not merely scrambled text. Every erase is clamped
+  // for the same reason.
+  const auto commitLine = [&]() {
+    if (hasRemainder) {
+      if (consumed < words.size()) words[consumed] = remainderText;
+      hasRemainder = false;
+    }
+    if (consumed == 0) return;
+    const auto trim = [&](auto& v) { v.erase(v.begin(), v.begin() + std::min(consumed, v.size())); };
+    trim(words);
+    trim(wordStyles);
+    trim(wordContinues);
+    trim(wordNoSpaceBefore);
+    trim(wordIsFocusSuffix);
+    eraseVisibleOffsetPrefix(consumed);
+    consumed = 0;
+  };
+
+  while (!frontExhausted()) {
     // Offset of the first word that will land on this line, for page resume-by-content-offset.
     const uint32_t lineVisibleOffset = visibleOffsetAt(0);
     std::vector<std::string> lineWordsVec;
@@ -668,9 +699,9 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
     // so keep the current count, which is what makes them sit flush.
     const auto fillGapCount = [&](const bool wantsGap) { return realGapCount + (wantsGap ? 1 : 0); };
 
-    while (!words.empty()) {
-      const std::string& word = words.front();
-      const EpdFontFamily::Style wordStyle = wordStyles.front();
+    while (!frontExhausted()) {
+      const std::string& word = frontWord();
+      const EpdFontFamily::Style wordStyle = frontStyle();
       const int wordWidth = measure(word, wordStyle);
 
       // Calculate what spacing would be if we add this word
@@ -686,7 +717,8 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
           // Whole word fits
           appendToLine(word, wordStyle, false);
           suppressNextGap = false;
-          consumeFrontWord();
+          consumed++;
+          hasRemainder = false;
         } else {
           // Word too long - split it
           auto chars = splitUtf8Chars(word);
@@ -708,11 +740,13 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
           if (charsFit < chars.size()) {
             std::string remainder;
             for (size_t i = charsFit; i < chars.size(); i++) remainder += chars[i];
-            words.front() = remainder;
+            remainderText = remainder;
+            hasRemainder = true;
             suppressNextGap = true;  // remainder is the tail of this same word
           } else {
             suppressNextGap = false;
-            consumeFrontWord();
+            consumed++;
+            hasRemainder = false;
           }
         }
       } else if (newTotalWidth <= pageWidth && newSpacing >= minSpacing) {
@@ -721,7 +755,8 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
         // newSpacing is pinned above maxSpacing and the spacing test alone would never stop.
         appendToLine(word, wordStyle, wantsGap);
         suppressNextGap = false;
-        consumeFrontWord();
+        consumed++;
+        hasRemainder = false;
 
         // If spacing is now within range, we might be done with this line
         if (newSpacing <= maxSpacing) {
@@ -754,11 +789,13 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
             if (charsFit < chars.size()) {
               std::string remainder;
               for (size_t i = charsFit; i < chars.size(); i++) remainder += chars[i];
-              words.front() = remainder;
+              remainderText = remainder;
+              hasRemainder = true;
               suppressNextGap = true;  // remainder is the tail of this same word
             } else {
               suppressNextGap = false;
-              consumeFrontWord();
+              consumed++;
+              hasRemainder = false;
             }
           }
         }
@@ -768,7 +805,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
     }
 
     // Phase 2: Check if spacing is too large, fill with more characters
-    while (!words.empty() && lineWordsVec.size() >= 1) {
+    while (!frontExhausted() && lineWordsVec.size() >= 1) {
       const bool nextWantsGap = !suppressNextGap && frontGapBefore();
       int gapCount = fillGapCount(nextWantsGap);
       int spareSpace = pageWidth - totalWordWidth;
@@ -777,8 +814,8 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
       if (spacing <= maxSpacing) break;  // Spacing is acceptable
 
       // Spacing too large - try to add characters from next word
-      const std::string& nextWord = words.front();
-      const EpdFontFamily::Style nextStyle = wordStyles.front();
+      const std::string& nextWord = frontWord();
+      const EpdFontFamily::Style nextStyle = frontStyle();
       auto chars = splitUtf8Chars(nextWord);
 
       // Calculate max width for partial word to keep spacing <= maxSpacing
@@ -811,16 +848,18 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
       if (charsFit < chars.size()) {
         std::string remainder;
         for (size_t i = charsFit; i < chars.size(); i++) remainder += chars[i];
-        words.front() = remainder;
+        remainderText = remainder;
+        hasRemainder = true;
         suppressNextGap = true;  // remainder is the tail of this same word
       } else {
         suppressNextGap = false;
-        consumeFrontWord();
+        consumed++;
+        hasRemainder = false;
       }
     }
 
     // Phase 3: Calculate final positions for justified alignment
-    bool isLastLine = words.empty();
+    bool isLastLine = frontExhausted();
     int gapCount = realGapCount;
     int spareSpace = pageWidth - totalWordWidth;
 
@@ -862,13 +901,32 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
       }
     }
 
+    // Suppressed trailing line (soft flush): leave every token this line took in place so the
+    // next chunk lays it out again. Committing here is what used to lose a line of text.
+    if (isLastLine && !includeLastLine) {
+      return;
+    }
+
+    // Everything this line took is now spoken for.
+    commitLine();
+
     // Process the line
-    if (!lineWords.empty() && (!isLastLine || includeLastLine)) {
+    if (!lineWords.empty()) {
       BlockStyle lineBlockStyle;
       lineBlockStyle.alignment = isLastLine ? CssTextAlign::Left : CssTextAlign::Justify;
-      processLine(std::make_shared<TextBlock>(std::move(lineWords), std::move(lineXPos), std::move(lineWordStyles),
-                                              std::vector<uint8_t>{}, std::vector<uint16_t>{}, lineBlockStyle),
-                  lineVisibleOffset);
+      const size_t lineTokens = lineWords.size();
+      auto block = std::make_shared<TextBlock>(std::move(lineWords), std::move(lineXPos), std::move(lineWordStyles),
+                                               std::vector<uint8_t>{}, std::vector<uint16_t>{}, lineBlockStyle);
+      // TextBlock's arena is a single makeUniqueNoThrow allocation, so OOM yields an invalid
+      // block. Emitting it anyway puts an empty block on the page (and into the section cache),
+      // which is why a whole line of text could silently vanish. The word-wrap path has always
+      // checked this; the character-wrap path did not.
+      if (!block->valid()) {
+        LOG_ERR("PTX", "Dropping line: TextBlock arena alloc failed (%u tokens, free=%lu maxAlloc=%lu)",
+                static_cast<unsigned>(lineTokens), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
+      } else {
+        processLine(std::move(block), lineVisibleOffset);
+      }
     }
   }
 }
@@ -1303,9 +1361,10 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
 }
 
 void ParsedText::applyParagraphIndent() {
-  if (!paragraphIndent || words.empty()) {
+  if (!paragraphIndent || words.empty() || paragraphIndentApplied) {
     return;
   }
+  paragraphIndentApplied = true;
 
   if (blockStyle.textIndentDefined) {
     // CSS text-indent is explicitly set (even if 0) - don't use fallback

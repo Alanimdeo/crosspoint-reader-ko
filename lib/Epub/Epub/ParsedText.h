@@ -43,6 +43,10 @@ class ParsedText {
   BlockStyle blockStyle;
   bool extraParagraphSpacing;
   bool paragraphIndent;
+  // applyParagraphIndent() prepends U+3000 to the first token. layoutAndExtractLines() can run
+  // several times over one block (soft flush re-lays out the same ParsedText), so the insert has
+  // to happen exactly once or every chunk gains another indent.
+  bool paragraphIndentApplied = false;
   bool characterWrap;
   bool hyphenationEnabled;
   bool focusReadingEnabled;
