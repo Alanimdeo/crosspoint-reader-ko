@@ -10,8 +10,6 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <ReleaseJsonParser.h>
-#include <esp_crt_bundle.h>
-#include <esp_http_client.h>
 #include <esp_wifi.h>
 // clang-format on
 
@@ -164,51 +162,8 @@ struct FlashCtx {
   void* userCtx;
 };
 
-// Per-call download state shared with the event handler.
-struct DownloadCtx {
-  OtaUpdater* updater;
-  HalFile* sdFile;
-  size_t written;
-  bool writeFailed;
-  OtaUpdater::ProgressCallback onProgress;
-  void* userCtx;
-};
-
-esp_err_t download_event_handler(esp_http_client_event_t* evt) {
-  auto* dctx = static_cast<DownloadCtx*>(evt->user_data);
-  switch (evt->event_id) {
-    case HTTP_EVENT_ON_HEADER:
-      // capture Content-Length when the server provides it
-      if (evt->header_key && evt->header_value && strcasecmp(evt->header_key, "Content-Length") == 0) {
-        const int len = atoi(evt->header_value);
-        if (len > 0) dctx->updater->setExpectedSize(static_cast<size_t>(len));
-      }
-      break;
-    case HTTP_EVENT_ON_DATA:
-      if (dctx->writeFailed) return ESP_OK;
-      if (evt->data_len > 0 && dctx->sdFile && *dctx->sdFile) {
-        const size_t want = static_cast<size_t>(evt->data_len);
-        const size_t wrote = dctx->sdFile->write(static_cast<const uint8_t*>(evt->data), want);
-        if (wrote != want) {
-          LOG_ERR("OTA", "SD write short @%u (got=%u want=%u)", static_cast<unsigned>(dctx->written),
-                  static_cast<unsigned>(wrote), static_cast<unsigned>(want));
-          dctx->writeFailed = true;
-          dctx->updater->setLastError("sd_write");
-          return ESP_FAIL;
-        }
-        dctx->written += want;
-        dctx->updater->setProcessed(dctx->written);
-        if (dctx->onProgress) dctx->onProgress(dctx->userCtx);
-      }
-      break;
-    default:
-      break;
-  }
-  return ESP_OK;
-}
 }  // namespace
 
-void OtaUpdater::setLastError(const std::string& err) { lastError = err; }
 void OtaUpdater::setExpectedSize(size_t s) {
   totalSize = s;
   render = true;
@@ -225,13 +180,16 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     return UPDATE_OLDER_ERROR;
   }
 
-  // Two-phase: (1) download the patched firmware.bin to SD via
-  // esp_http_client_perform (same proven pattern as checkForUpdate uses) +
-  // event handler that streams chunks straight to a file on the SD card,
-  // (2) flash that file using firmware_flash::flashFromSdPath. Skipping
-  // esp_https_ota_* avoids the running ESP-IDF's bogus esp_image_verify
-  // efuse-blk-rev rejection on X4 silicon. The cached SD file also lets
-  // the user retry the SD update flow if anything dies mid-flash.
+  // Two-phase: (1) stream firmware.bin to SD, (2) flash that file with
+  // firmware_flash::flashFromSdPath. Skipping esp_https_ota_* avoids the running
+  // ESP-IDF's bogus esp_image_verify efuse-blk-rev rejection on X4 silicon, and the
+  // cached SD file lets the user retry the SD update flow if anything dies mid-flash.
+  //
+  // The download goes through HttpDownloader, not esp_http_client: the precompiled
+  // mbedTLS in this package has TLS 1.3 stubbed out (see freeink-sdk SecureClient.h),
+  // so esp_http_client cannot reach the release CDN and fails the connect outright.
+  // HttpDownloader runs on wolfSSL when FREEINK_NET_WOLFSSL is set and handles the
+  // GitHub -> CDN redirect hop itself.
   phase = Phase::Downloading;
   totalSize = otaSize;  // GitHub release asset size — pre-populated from checkForUpdate
   processedSize = 0;
@@ -247,80 +205,58 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     return INTERNAL_UPDATE_ERROR;
   }
 
-  DownloadCtx dctx{this, &sdFile, 0, false, onProgress, ctx};
-
-  esp_http_client_config_t client_config = {
-      .url = otaUrl.c_str(),
-      .timeout_ms = 30000,
-      .event_handler = download_event_handler,
-      .buffer_size = 8192,
-      .buffer_size_tx = 8192,
-      .user_data = &dctx,
-      /* Enforce CN/SAN hostname verification — crt_bundle_attach validates the CA chain but
-       * hostname matching is a separate step. Leaving this true would let any cert signed by a
-       * trusted CA serve a tampered firmware over HTTPS. */
-      .skip_cert_common_name_check = false,
-      .crt_bundle_attach = esp_crt_bundle_attach,
-      .keep_alive_enable = true,
-  };
-
-  esp_http_client_handle_t client = esp_http_client_init(&client_config);
-  if (!client) {
-    LOG_ERR("OTA", "esp_http_client_init failed");
-    lastError = "http_init";
-    return INTERNAL_UPDATE_ERROR;
-  }
-  esp_http_client_set_header(client, "User-Agent", "CrossPoint-ESP32-" CROSSPOINT_VERSION);
+  size_t written = 0;
+  bool writeFailed = false;
 
   esp_wifi_set_ps(WIFI_PS_NONE);
-
-  esp_err_t err = esp_http_client_perform(client);
-  const int status = esp_http_client_get_status_code(client);
-  esp_http_client_cleanup(client);
+  const bool fetchOk = HttpDownloader::fetchUrl(otaUrl, [&](const uint8_t* data, const size_t len) {
+    if (len == 0) return true;
+    const size_t wrote = sdFile.write(data, len);
+    if (wrote != len) {
+      LOG_ERR("OTA", "SD write short @%u (got=%u want=%u)", static_cast<unsigned>(written),
+              static_cast<unsigned>(wrote), static_cast<unsigned>(len));
+      writeFailed = true;
+      lastError = "sd_write";
+      return false;  // abort the transfer
+    }
+    written += len;
+    setProcessed(written);
+    if (onProgress) onProgress(ctx);
+    return true;
+  });
   esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
   // Explicit close required before flashFromSdPath re-opens the same path for read.
   sdFile.close();
 
-  if (err != ESP_OK) {
-    LOG_ERR("OTA", "http perform failed: %s (status=%d)", esp_err_to_name(err), status);
-    char buf[48];
-    snprintf(buf, sizeof(buf), "http_perform:%s", esp_err_to_name(err));
-    lastError = buf;
-    return HTTP_ERROR;
-  }
-  if (status / 100 != 2) {
-    LOG_ERR("OTA", "http status %d", status);
-    char buf[24];
-    snprintf(buf, sizeof(buf), "http_status:%d", status);
-    lastError = buf;
-    return HTTP_ERROR;
-  }
-  if (dctx.writeFailed) {
+  if (writeFailed) {
     return INTERNAL_UPDATE_ERROR;  // lastError already set
   }
-  if (dctx.written == 0) {
+  if (!fetchOk) {
+    LOG_ERR("OTA", "firmware download failed after %u bytes", static_cast<unsigned>(written));
+    lastError = "http_fetch";
+    return HTTP_ERROR;
+  }
+  if (written == 0) {
     LOG_ERR("OTA", "no body bytes received");
     lastError = "empty_body";
     return HTTP_ERROR;
   }
   // Reject truncated downloads before flashing. The firmware-flasher only does a magic-byte /
-  // min-size check on the SD file, so a short body (network drop after Content-Length is known)
-  // would otherwise still go through and brick on reboot.
+  // min-size check on the SD file, so a short body (network drop mid-transfer) would otherwise
+  // still go through and brick on reboot.
   const size_t expectedSize = totalSize > 0 ? totalSize : otaSize;
-  if (expectedSize > 0 && dctx.written != expectedSize) {
-    LOG_ERR("OTA", "short body: got=%u want=%u", static_cast<unsigned>(dctx.written),
-            static_cast<unsigned>(expectedSize));
+  if (expectedSize > 0 && written != expectedSize) {
+    LOG_ERR("OTA", "short body: got=%u want=%u", static_cast<unsigned>(written), static_cast<unsigned>(expectedSize));
     char buf[48];
-    snprintf(buf, sizeof(buf), "short_body:%u/%u", static_cast<unsigned>(dctx.written),
-             static_cast<unsigned>(expectedSize));
+    snprintf(buf, sizeof(buf), "short_body:%u/%u", static_cast<unsigned>(written), static_cast<unsigned>(expectedSize));
     lastError = buf;
     return HTTP_ERROR;
   }
-  LOG_INF("OTA", "download complete: %u bytes -> %s", static_cast<unsigned>(dctx.written), kOtaSdPath);
+  LOG_INF("OTA", "download complete: %u bytes -> %s", static_cast<unsigned>(written), kOtaSdPath);
 
   // Phase 2: flash from SD using the shared firmware flasher.
   phase = Phase::Flashing;
-  totalSize = dctx.written;
+  totalSize = written;
   processedSize = 0;
   render = true;
   if (onProgress) onProgress(ctx);

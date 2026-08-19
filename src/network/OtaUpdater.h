@@ -44,7 +44,6 @@ class OtaUpdater {
   const std::string& getLastError() const { return lastError; }
 
   // For internal callbacks (esp_http_client event handler, firmware flasher).
-  void setLastError(const std::string& err);
   void setExpectedSize(size_t s);
   void setProcessed(size_t s);
 
