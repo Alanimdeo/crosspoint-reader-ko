@@ -20,6 +20,12 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
+namespace {
+// Hold threshold for the Confirm long-press "reveal in file browser" action on
+// a Continue Reading card (firmware convention, cf. FileBrowserActivity).
+constexpr unsigned long LONG_PRESS_MS = 1000;
+}  // namespace
+
 int HomeActivity::getMenuItemCount() const {
   int count = 4;  // File Browser, Recents, File transfer, Settings
   if (!recentBooks.empty()) {
@@ -202,6 +208,25 @@ void HomeActivity::loop() {
         break;
     }
   };
+
+  // Swallow the release of a long-press that already fired, so it can't also
+  // trigger activateSelection (same idiom as RecentBooksActivity).
+  if (longPressFired) {
+    if (!mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
+      longPressFired = false;
+    }
+    return;
+  }
+
+  // Long-press Confirm on a Continue Reading card: open the file browser at
+  // the card's folder with the file highlighted instead of opening the book.
+  // Fires while the hold is in progress (firmware hold-to-act pattern).
+  if (selectorIndex < recentBooks.size() && mappedInput.isPressed(MappedInputManager::Button::Confirm) &&
+      mappedInput.getHeldTime() >= LONG_PRESS_MS) {
+    longPressFired = true;
+    activityManager.goToFileBrowser(recentBooks[selectorIndex].path);
+    return;
+  }
 
   buttonNavigator.onNext([this, menuCount] {
     selectorIndex = ButtonNavigator::nextIndex(selectorIndex, menuCount);

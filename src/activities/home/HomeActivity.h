@@ -21,6 +21,10 @@ class HomeActivity final : public Activity {
   // Home can be entered while Back is still held (e.g. leaving Settings with
   // Back): ignore that stale release until a fresh press is seen here.
   bool backPressSeen = false;
+  // Set when a long-press Confirm has fired; input is swallowed until Confirm
+  // is physically released so the release can't also open the card (cf.
+  // RecentBooksActivity).
+  bool longPressFired = false;
   uint8_t* coverBuffer = nullptr;  // HomeActivity's own buffer for cover image
   size_t coverBufferSize = 0;      // Bytes allocated to coverBuffer
   // Logical rect last passed to drawRecentBookCover. The cover snapshot only
