@@ -266,7 +266,7 @@ void FileBrowserActivity::loop() {
 
       std::string heading = tr(STR_DELETE) + std::string("? ");
 
-      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, entry), handler);
+      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading), handler);
       return;
     } else {
       // --- SHORT PRESS ACTION: OPEN/NAVIGATE ---

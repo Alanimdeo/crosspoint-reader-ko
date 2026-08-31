@@ -143,9 +143,8 @@ void RecentBooksActivity::promptRemoveBook(const std::string& path, const std::s
     }
   };
 
-  startActivityForResult(
-      std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_REMOVE_FROM_RECENTS), title),
-      std::move(handler));
+  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_REMOVE_FROM_RECENTS)),
+                         std::move(handler));
 }
 
 void RecentBooksActivity::render(RenderLock&&) {

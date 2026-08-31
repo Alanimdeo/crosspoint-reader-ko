@@ -5,29 +5,26 @@
 #include "HalDisplay.h"
 #include "components/UITheme.h"
 
+namespace {
+constexpr int kMargin = 20;
+constexpr int kFontId = UI_10_FONT_ID;
+}  // namespace
+
 ConfirmationActivity::ConfirmationActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                           const std::string& heading, const std::string& body)
-    : Activity("Confirmation", renderer, mappedInput), heading(heading), body(body) {}
+                                           const std::string& heading)
+    : Activity("Confirmation", renderer, mappedInput) {
+  // Truncate the heading in the constructor (renderer width is available here);
+  // the popup carries it as its title and Cancel/Confirm as options.
+  const int maxWidth = renderer.getScreenWidth() - (kMargin * 2);
+  popupTitle =
+      heading.empty() ? std::string() : renderer.truncatedText(kFontId, heading.c_str(), maxWidth, EpdFontFamily::BOLD);
+}
 
 void ConfirmationActivity::onEnter() {
   Activity::onEnter();
 
-  lineHeight = renderer.getLineHeight(fontId);
-  const int maxWidth = renderer.getScreenWidth() - (margin * 2);
-
-  if (!heading.empty()) {
-    safeHeading = renderer.truncatedText(fontId, heading.c_str(), maxWidth, EpdFontFamily::BOLD);
-  }
-  if (!body.empty()) {
-    safeBody = renderer.truncatedText(fontId, body.c_str(), maxWidth, EpdFontFamily::REGULAR);
-  }
-
-  // Text sits in the upper part of the screen so the confirmation popup
-  // (centered) doesn't cover it.
-  startY = renderer.getScreenHeight() / 6;
-
   const char* options[] = {I18N.get(StrId::STR_CANCEL), I18N.get(StrId::STR_CONFIRM)};
-  confirmPopup.show(safeHeading.c_str(), options, 2, 0, [this](int idx) {
+  confirmPopup.show(popupTitle.c_str(), options, 2, 0, [this](int idx) {
     ActivityResult res;
     res.isCancelled = (idx != 1);
     setResult(std::move(res));
@@ -39,19 +36,6 @@ void ConfirmationActivity::onEnter() {
 
 void ConfirmationActivity::render(RenderLock&& lock) {
   renderer.clearScreen();
-
-  int currentY = startY;
-  LOG_DBG("CONF", "currentY: %d", currentY);
-  // Draw Heading
-  if (!safeHeading.empty()) {
-    renderer.drawCenteredText(fontId, currentY, safeHeading.c_str(), true, EpdFontFamily::BOLD);
-    currentY += lineHeight + spacing;
-  }
-
-  // Draw Body
-  if (!safeBody.empty()) {
-    renderer.drawCenteredText(fontId, currentY, safeBody.c_str(), true, EpdFontFamily::REGULAR);
-  }
 
   if (confirmPopup.processRender(renderer, mappedInput)) return;
 
