@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "CrossPointSettings.h"
+#include "EndOfBookOptions.h"
 #include "TxtReaderMenuActivity.h"
 #include "activities/Activity.h"
 #include "util/ReadingTimer.h"
@@ -65,6 +66,11 @@ class TxtReaderActivity final : public Activity {
 
   // Reader-menu-driven options (ephemeral; not persisted to global settings)
   bool automaticPageTurnActive = false;
+  // True while the End-of-Book screen is showing. Set by pageTurn() when the
+  // reader reaches the last page and the user turns forward; cleared when the
+  // user pages back into the book or leaves the reader. Mirror of the EPUB/XTC
+  // readers' end-of-book state, expressed from the byte-offset model.
+  bool endOfBookMode = false;
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
   uint8_t currentPageTurnOption = 0;  // index into the menu's pageTurnLabels
@@ -79,6 +85,8 @@ class TxtReaderActivity final : public Activity {
 
   // Per-book reading-time accumulator. See util/ReadingTimer.h.
   ReadingTimer readingTimer;
+  // Next-book suggestion menu for the End-of-Book screen (shared with the EPUB/XTC readers).
+  EndOfBookOptions endOfBookOptions;
 
   void renderPage();
   void renderStatusBar() const;

@@ -156,6 +156,10 @@ void TxtReaderActivity::onExit() {
   // Persist accumulated session time before tearing down the file.
   readingTimer.stop();
 
+  // Fresh session next open — the end screen only appears when the user
+  // reaches the last page again.
+  endOfBookMode = false;
+
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
 
@@ -199,6 +203,34 @@ void TxtReaderActivity::loop() {
       readingTimer.notifyInput();
       pageTurn(true);
       return;
+    }
+  }
+
+  // While the End-of-Book suggestion menu is showing it owns Confirm/Back/
+  // navigation input, mirroring the EPUB/XTC readers. Anything it doesn't
+  // handle (e.g. long-press Back to the file browser) falls through to the
+  // regular handlers below. The short-press Back to the last page is handled
+  // here, so the back navigation below is only reached when not in this mode.
+  if (endOfBookMode && endOfBookOptions.menuActive()) {
+    std::string openPath;
+    switch (endOfBookOptions.handleMenuInput(mappedInput, &openPath)) {
+      case EndOfBookOptions::Action::OpenBook:
+        activityManager.goToReader(openPath);
+        return;
+      case EndOfBookOptions::Action::GoHome:
+        onGoHome();
+        return;
+      case EndOfBookOptions::Action::LastPage:
+        endOfBookMode = false;
+        currentOffset = findBackwardPageStart(fileSize);
+        currentEndOffset = currentOffset;
+        requestUpdate();
+        return;
+      case EndOfBookOptions::Action::Redraw:
+        requestUpdate();
+        return;
+      case EndOfBookOptions::Action::None:
+        break;
     }
   }
 
@@ -295,12 +327,40 @@ void TxtReaderActivity::loop() {
     return;
   }
 
+  // At the End-of-Book screen with no suggestion menu, forward goes home and
+  // back returns to the last page. When the menu IS showing, the end-of-book
+  // block above owns the input and selection movement; absorb leftover
+  // page-turn triggers so e.g. "previous" at the top of the list doesn't jump
+  // back into the book.
+  if (endOfBookMode) {
+    if (endOfBookOptions.menuActive()) {
+      return;
+    }
+    if (nextTriggered) {
+      onGoHome();
+    } else {
+      endOfBookMode = false;
+      currentOffset = findBackwardPageStart(fileSize);
+      currentEndOffset = currentOffset;
+      requestUpdate();
+    }
+    return;
+  }
+
   readingTimer.notifyInput();
   pageTurn(nextTriggered);
 }
 
 void TxtReaderActivity::pageTurn(const bool isForwardTurn) {
   if (!isForwardTurn) {
+    if (endOfBookMode) {
+      // Leaving the End-of-Book screen: jump back to the last actual page.
+      endOfBookMode = false;
+      currentOffset = findBackwardPageStart(fileSize);
+      currentEndOffset = currentOffset;
+      requestUpdate();
+      return;
+    }
     if (currentOffset == 0) {
       return;  // already at start
     }
@@ -316,8 +376,12 @@ void TxtReaderActivity::pageTurn(const bool isForwardTurn) {
   }
 
   if (currentEndOffset >= fileSize) {
+    // Last page reached — forward goes to the End-of-Book screen instead of
+    // home (same behavior as the EPUB/XTC readers). render() draws the
+    // suggestion menu, or the plain title when no siblings are found.
     automaticPageTurnActive = false;
-    onGoHome();
+    endOfBookMode = true;
+    requestUpdate();
     return;
   }
   // Push the page we're leaving so Back can return to it, capped so we
@@ -854,6 +918,20 @@ void TxtReaderActivity::render(RenderLock&&) {
   }
 
   // Bounds check
+  // The fileSize == 0 case was handled above. When the reader sits on the
+  // End-of-Book screen, draw it instead of a page — this must precede the
+  // out-of-range recovery below, which would otherwise snap an end-state
+  // offset back to the last real page on the next frame.
+  if (endOfBookMode) {
+    // Sole load site: runs on the render task (serialized by RenderLock); the
+    // main task only reads the suggestions once the flag is published.
+    endOfBookOptions.loadOnce(txt->getPath());
+    renderer.clearScreen();
+    endOfBookOptions.render(renderer, mappedInput);
+    renderer.displayBuffer();
+    return;
+  }
+
   // Recover from an out-of-range offset (e.g. settings change shrinking the
   // effective reachable position). snapToLineStart(fileSize) returns fileSize
   // itself and would leave loadPageAtOffset with nothing to read, so fall back
