@@ -84,12 +84,21 @@ def inject_version(env):
 
     project_dir = env['PROJECT_DIR']
     base_version = get_base_version(project_dir)
-    branch = get_git_branch(project_dir)
-    short_sha = get_git_short_sha(project_dir)
-    version_string = f'{base_version}-dev-{branch}-{short_sha}'
+    # CROSSPOINT_VERSION override: when set, inject it verbatim (no git suffix)
+    # instead of deriving '<base>-dev-<branch>-<sha>'. Lets a dev build be
+    # tagged with an exact version, e.g.:
+    #   CROSSPOINT_VERSION=1.5.0-ko.3-dev.4 pio run
+    fixed_version = os.environ.get('CROSSPOINT_VERSION', '').strip()
+    if fixed_version:
+        version_string = fixed_version
+        print(f'CrossPoint build version: {version_string} (CROSSPOINT_VERSION override)')
+    else:
+        branch = get_git_branch(project_dir)
+        short_sha = get_git_short_sha(project_dir)
+        version_string = f'{base_version}-dev-{branch}-{short_sha}'
+        print(f'CrossPoint build version: {version_string}')
 
     env.Append(CPPDEFINES=[('CROSSPOINT_VERSION', f'\\"{version_string}\\"')])
-    print(f'CrossPoint build version: {version_string}')
 
 
 # PlatformIO/SCons entry point — Import and env are SCons builtins injected at runtime.
