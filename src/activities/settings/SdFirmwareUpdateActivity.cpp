@@ -118,15 +118,14 @@ void SdFirmwareUpdateActivity::promptConfirmation() {
     RenderLock lock(*this);
     state = State::CONFIRMING;
   }
-  // Show "Update firmware?" with the file name appended to the title so the
-  // user sees which .bin they are about to install.
+  // Show "Update firmware?" with the file path as the body line.
   std::string heading = tr(STR_FIRMWARE_UPDATE_PROMPT);
-  std::string file = firmwarePath;
-  const auto pos = file.find_last_of('/');
-  if (pos != std::string::npos) file = file.substr(pos + 1);
-  heading += " " + file;
+  // Use the basename only to keep the body short.
+  std::string body = firmwarePath;
+  const auto pos = body.find_last_of('/');
+  if (pos != std::string::npos) body = body.substr(pos + 1);
 
-  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading),
+  startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, heading, body),
                          [this](const ActivityResult& result) { onConfirmationResult(result); });
 }
 

@@ -49,6 +49,13 @@ class OptionPopup {
     active = true;
   }
 
+  // Optional body line rendered between the title and the options. Empty by
+  // default (keep the popup's historical title+options look).
+  void setBody(const std::string& bodyText) {
+    body = bodyText;
+    layoutValid = false;
+  }
+
   bool handleInput(MappedInputManager& input, const std::function<void()>& requestUpdate) {
     if (!active) return false;
 
@@ -118,7 +125,7 @@ class OptionPopup {
 
   void render(const GfxRenderer& renderer) const {
     if (!active) return;
-    GUI.drawOptionPopup(renderer, title.c_str(), ownedStrings, selectedIndex);
+    GUI.drawOptionPopup(renderer, title.c_str(), ownedStrings, selectedIndex, body.c_str());
   }
 
   bool isActive() const { return active; }
@@ -157,16 +164,21 @@ class OptionPopup {
     }
 
     const int optionCount = static_cast<int>(ownedStrings.size());
+    // The body line (setBody) sits between the title and the options; it must be
+    // reflected in the dialog height so the popup stays centered and the options
+    // keep their vertical position.
+    const bool hasBody = !body.empty();
+    const int bodyLineHeight = hasBody ? renderer.getLineHeight(UI_10_FONT_ID) + metrics.optionPopupTitleGap : 0;
     const int listHeight = rowHeight * optionCount + itemSpacing * (optionCount - 1);
     const int dialogW = std::min((maxTextWidth + innerPadding * 2 + selectionHPadding * 2) * 12 / 10,
                                  pageWidth - metrics.optionPopupDialogSideMargin * 2);
-    const int contentHeight = titleLineHeight + metrics.optionPopupTitleGap + listHeight;
+    const int contentHeight = titleLineHeight + metrics.optionPopupTitleGap + bodyLineHeight + listHeight;
     const int dialogH = contentHeight + innerPadding * 2;
     const int dialogX = (pageWidth - dialogW) / 2;
     const int dialogY = (pageHeight - dialogH) / 2;
     const int itemRectX = dialogX + innerPadding;
     const int itemRectW = dialogW - innerPadding * 2;
-    const int firstItemY = dialogY + innerPadding + titleLineHeight + metrics.optionPopupTitleGap;
+    const int firstItemY = dialogY + innerPadding + titleLineHeight + metrics.optionPopupTitleGap + bodyLineHeight;
 
     layout.dialog = Rect{dialogX, dialogY, dialogW, dialogH};
     layout.options.clear();
@@ -184,6 +196,7 @@ class OptionPopup {
 
   bool active = false;
   std::string title;
+  std::string body;
   std::vector<std::string> ownedStrings;
   int selectedIndex = 0;
   std::function<void(int)> onSelectCallback;

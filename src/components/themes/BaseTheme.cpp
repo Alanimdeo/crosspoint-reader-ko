@@ -944,7 +944,7 @@ void BaseTheme::drawTextField(const GfxRenderer& renderer, Rect rect, const int 
 }
 
 void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, const std::vector<std::string>& options,
-                                int selectedIndex) const {
+                                int selectedIndex, const char* body) const {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -960,9 +960,13 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
 
   const int optionLineHeight = renderer.getLineHeight(optionFontId);
   const int titleLineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+  const int bodyLineHeight = (body && *body) ? renderer.getLineHeight(UI_10_FONT_ID) : 0;
   const int rowHeight = optionLineHeight + selectionVPadding * 2;
 
   int maxTextWidth = renderer.getTextWidth(UI_12_FONT_ID, title, EpdFontFamily::BOLD);
+  if (body && *body) {
+    maxTextWidth = std::max(maxTextWidth, renderer.getTextWidth(UI_10_FONT_ID, body, EpdFontFamily::REGULAR));
+  }
   for (const auto& opt : options) {
     int w = renderer.getTextWidth(optionFontId, opt.c_str(), optionStyle);
     if (w > maxTextWidth) maxTextWidth = w;
@@ -972,7 +976,10 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
   const int listHeight = rowHeight * optionCount + itemSpacing * (optionCount - 1);
   const int dialogW = std::min((maxTextWidth + innerPadding * 2 + selectionHPadding * 2) * 12 / 10,
                                pageWidth - metrics.optionPopupDialogSideMargin * 2);
-  const int contentHeight = titleLineHeight + metrics.optionPopupTitleGap + listHeight;
+  // The body sits between the title separator and the option list, separated by
+  // a half-line gap on each side.
+  const int bodyBlock = bodyLineHeight ? bodyLineHeight + metrics.optionPopupTitleGap : 0;
+  const int contentHeight = titleLineHeight + metrics.optionPopupTitleGap + bodyBlock + listHeight;
   const int dialogH = contentHeight + innerPadding * 2;
   const int dialogX = (pageWidth - dialogW) / 2;
   const int dialogY = (pageHeight - dialogH) / 2;
@@ -1004,6 +1011,13 @@ void BaseTheme::drawOptionPopup(const GfxRenderer& renderer, const char* title, 
   }
 
   y += metrics.optionPopupTitleGap;
+
+  // Optional body line (e.g. the file being deleted) drawn above the options,
+  // inside the popup frame.
+  if (body && *body) {
+    renderer.drawCenteredText(UI_10_FONT_ID, y, body, true, EpdFontFamily::REGULAR);
+    y += bodyLineHeight + metrics.optionPopupTitleGap;
+  }
 
   const int itemRectX = dialogX + innerPadding;
   const int itemRectW = dialogW - innerPadding * 2;

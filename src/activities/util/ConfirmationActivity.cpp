@@ -11,8 +11,8 @@ constexpr int kFontId = UI_10_FONT_ID;
 }  // namespace
 
 ConfirmationActivity::ConfirmationActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                           const std::string& heading)
-    : Activity("Confirmation", renderer, mappedInput) {
+                                           const std::string& heading, const std::string& body)
+    : Activity("Confirmation", renderer, mappedInput), body(body) {
   // Truncate the heading in the constructor (renderer width is available here);
   // the popup carries it as its title and Cancel/Confirm as options.
   const int maxWidth = renderer.getScreenWidth() - (kMargin * 2);
@@ -30,6 +30,12 @@ void ConfirmationActivity::onEnter() {
     setResult(std::move(res));
     finish();
   });
+  if (!body.empty()) {
+    // Keep the body line short so it fits the popup (same truncation rule as
+    // the title, regular style).
+    confirmPopup.setBody(renderer.truncatedText(kFontId, body.c_str(), renderer.getScreenWidth() - (kMargin * 2),
+                                                EpdFontFamily::REGULAR));
+  }
 
   requestUpdate(true);
 }

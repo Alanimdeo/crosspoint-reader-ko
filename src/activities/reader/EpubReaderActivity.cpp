@@ -1000,7 +1000,8 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     }
     case EpubReaderMenuActivity::MenuAction::RESET_READING_TIMER: {
       // Two-step destructive action: prompt before zeroing the cumulative time.
-      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET_READING_TIMER)),
+      startActivityForResult(std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_RESET_READING_TIMER),
+                                                                    tr(STR_RESET_READING_TIMER_PROMPT)),
                              [this](const ActivityResult& result) {
                                readingTimer.notifyInput();
                                if (!result.isCancelled) {
