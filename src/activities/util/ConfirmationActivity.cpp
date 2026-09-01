@@ -41,7 +41,9 @@ void ConfirmationActivity::onEnter() {
 }
 
 void ConfirmationActivity::render(RenderLock&& lock) {
-  renderer.clearScreen();
+  // No clearScreen: the previous activity's frame is still in the framebuffer
+  // (only one buffer shared with the underlying screen), so the popup overlays
+  // the last displayed screen instead of forcing a white background.
 
   if (confirmPopup.processRender(renderer, mappedInput)) return;
 
