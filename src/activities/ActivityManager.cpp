@@ -217,8 +217,8 @@ void ActivityManager::goToLuaApp(std::string path) {
   replaceActivity(std::make_unique<LuaRunnerActivity>(renderer, mappedInput, std::move(path)));
 }
 
-void ActivityManager::goToSleep(bool fromTimeout) {
-  replaceActivity(std::make_unique<SleepActivity>(renderer, mappedInput, fromTimeout));
+void ActivityManager::goToSleep(bool fromTimeout, bool quietRepaint) {
+  replaceActivity(std::make_unique<SleepActivity>(renderer, mappedInput, fromTimeout, quietRepaint));
   loop();  // Important: sleep screen must be rendered immediately, the caller will go to sleep right after this returns
 }
 

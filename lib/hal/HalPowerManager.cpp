@@ -8,6 +8,7 @@
 #include <soc/soc_caps.h>
 
 #include <cassert>
+#include <cstdio>
 
 #include "HalGPIO.h"
 
@@ -83,7 +84,7 @@ void HalPowerManager::setPowerSaving(bool enabled) {
   // Otherwise, no change needed
 }
 
-void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
+void HalPowerManager::startDeepSleep(HalGPIO& gpio, uint64_t timerWakeMs) const {
 #ifdef ENABLE_SERIAL_LOG
   // Tear down HWCDC so the host sees a clean disconnect and the peripheral
   // doesn't hold power domains that interfere with USB-powered GPIO wake.
@@ -113,8 +114,19 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   freeink::PowerManager::powerDownRailsForSleep();
 
   // Waits for the power button to be physically released (so holding it doesn't
-  // immediately wake the device again), then arms the wake source and sleeps.
-  freeink::PowerManager::deepSleepUntilPowerButton();
+  // immediately wake the device again), then arms the wake sources and sleeps.
+  // (Clock-sleep timer arming for the X3 path is handled in main.cpp after the
+  // button wake is armed; see enterDeepSleep().)
+  freeink::PowerManager::waitForPowerButtonRelease();
+  freeink::PowerManager::armPowerButtonWakeup();
+
+  if (timerWakeMs > 0) {
+    // Keep the HAL entry point complete for non-X3 callers: arm the timer here
+    // when main hasn't already. (It's additive with the GPIO wake source.)
+    esp_sleep_enable_timer_wakeup(timerWakeMs * 1000ULL);
+  }
+
+  freeink::PowerManager::deepSleep();
 }
 
 uint16_t HalPowerManager::getBatteryPercentage() const {
