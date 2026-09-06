@@ -429,7 +429,7 @@ static int read_number(lua_State* L, FILE* f) {
   do {
     rn.c = l_getc(rn.f);
   } while (isspace(rn.c)); /* skip spaces */
-  test2(&rn, "-+");        /* optional sign */
+  test2(&rn, "-+"); /* optional sign */
   if (test2(&rn, "00")) {
     if (test2(&rn, "xX"))
       hex = 1; /* numeral is hexadecimal */
