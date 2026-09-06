@@ -18,6 +18,7 @@
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
 #include "util/FullScreenMessageActivity.h"
+#include "util/LuaRunnerActivity.h"
 
 static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -210,6 +211,10 @@ void ActivityManager::goToBrowser() {
 
 void ActivityManager::goToReader(std::string path, const bool allowFastInitialRefresh) {
   replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path), allowFastInitialRefresh));
+}
+
+void ActivityManager::goToLuaApp(std::string path) {
+  replaceActivity(std::make_unique<LuaRunnerActivity>(renderer, mappedInput, std::move(path)));
 }
 
 void ActivityManager::goToSleep(bool fromTimeout) {

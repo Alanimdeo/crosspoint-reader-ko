@@ -11,6 +11,7 @@
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "activities/util/ConfirmationActivity.h"
+#include "activities/util/LuaRunnerActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookCacheUtils.h"
@@ -54,7 +55,7 @@ void FileBrowserActivity::loadFiles() {
         }
       } else if (FsHelpers::hasEpubExtension(filename) || FsHelpers::hasXtcExtension(filename) ||
                  FsHelpers::hasTxtExtension(filename) || FsHelpers::hasMarkdownExtension(filename) ||
-                 FsHelpers::hasBmpExtension(filename)) {
+                 FsHelpers::hasLuaExtension(filename) || FsHelpers::hasBmpExtension(filename)) {
         files.emplace_back(filename);
       }
     }
@@ -451,4 +452,13 @@ size_t FileBrowserActivity::findEntry(const std::string& name) const {
   for (size_t i = 0; i < files.size(); i++)
     if (files[i] == name) return i;
   return 0;
+}
+
+void FileBrowserActivity::onSelectBook(const std::string& path) {
+  // .lua files are scripts, not books: hand them to the Lua runner.
+  if (FsHelpers::hasLuaExtension(path)) {
+    activityManager.goToLuaApp(path);
+    return;
+  }
+  Activity::onSelectBook(path);
 }

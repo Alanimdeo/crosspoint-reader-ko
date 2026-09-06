@@ -1,0 +1,26 @@
+{
+  "name": "Lua",
+  "version": "5.4.6",
+  "description": "Vendored Lua 5.4.6 interpreter (embed core; stdlib trimmed per build flags)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lua/lua.git"
+  },
+  "frameworks": "*",
+  "platforms": "*",
+  "build": {
+    "srcDir": "src",
+    "includeDir": "src",
+    "srcFilter": [
+      "+<*>",
+      "+<*.c>",
+      "-<lua.c>",
+      "-<luac.c>",
+      "-<linit.c>",
+      "-<ldblib.c>",
+      "-<liolib.c>",
+      "-<loadlib.c>",
+      "-<loslib.c>"
+    ]
+  }
+}

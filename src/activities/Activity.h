@@ -63,7 +63,7 @@ class Activity {
   // Convenience method to facilitate API transition to ActivityManager
   // TODO: remove this in near future
   void onGoHome(HomeMenuItem item = HomeMenuItem::NONE);
-  void onSelectBook(const std::string& path);
+  virtual void onSelectBook(const std::string& path);
 
  protected:
   enum class ListTouchResult : uint8_t {
