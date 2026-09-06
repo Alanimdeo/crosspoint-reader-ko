@@ -67,7 +67,7 @@ typedef struct expdesc {
   union {
     lua_Integer ival; /* for VKINT */
     lua_Number nval;  /* for VKFLT */
-    TString* strval;  /* for VKSTR */
+    TString *strval;  /* for VKSTR */
     int info;         /* for generic use */
     struct {          /* for indexed variables */
       short idx;      /* index (R or "long" K) */
@@ -95,14 +95,14 @@ typedef union Vardesc {
     lu_byte kind;
     lu_byte ridx;  /* register holding the variable */
     short pidx;    /* index of the variable in the Proto's 'locvars' array */
-    TString* name; /* variable name */
+    TString *name; /* variable name */
   } vd;
   TValue k; /* constant value (if any) */
 } Vardesc;
 
 /* description of pending goto statements and label statements */
 typedef struct Labeldesc {
-  TString* name;   /* label identifier */
+  TString *name;   /* label identifier */
   int pc;          /* position in code */
   int line;        /* line where it appeared */
   lu_byte nactvar; /* number of active variables in that position */
@@ -111,7 +111,7 @@ typedef struct Labeldesc {
 
 /* list of labels or gotos */
 typedef struct Labellist {
-  Labeldesc* arr; /* array */
+  Labeldesc *arr; /* array */
   int n;          /* number of entries in use */
   int size;       /* array size */
 } Labellist;
@@ -119,7 +119,7 @@ typedef struct Labellist {
 /* dynamic structures used by the parser */
 typedef struct Dyndata {
   struct { /* list of all active local variables */
-    Vardesc* arr;
+    Vardesc *arr;
     int n;
     int size;
   } actvar;
@@ -132,10 +132,10 @@ struct BlockCnt; /* defined in lparser.c */
 
 /* state needed to generate code for a given function */
 typedef struct FuncState {
-  Proto* f;               /* current function header */
-  struct FuncState* prev; /* enclosing function */
-  struct LexState* ls;    /* lexical state */
-  struct BlockCnt* bl;    /* chain of current blocks */
+  Proto *f;               /* current function header */
+  struct FuncState *prev; /* enclosing function */
+  struct LexState *ls;    /* lexical state */
+  struct BlockCnt *bl;    /* chain of current blocks */
   int pc;                 /* next position to code (equivalent to 'ncode') */
   int lasttarget;         /* 'label' of last 'jump label' */
   int previousline;       /* last line that was saved in 'lineinfo' */
@@ -148,11 +148,12 @@ typedef struct FuncState {
   lu_byte nactvar;        /* number of active local variables */
   lu_byte nups;           /* number of upvalues */
   lu_byte freereg;        /* first free register */
-  lu_byte iwthabs;        /* instructions issued since last absolute line info */
-  lu_byte needclose;      /* function needs to close upvalues when returning */
+  lu_byte iwthabs;   /* instructions issued since last absolute line info */
+  lu_byte needclose; /* function needs to close upvalues when returning */
 } FuncState;
 
-LUAI_FUNC int luaY_nvarstack(FuncState* fs);
-LUAI_FUNC LClosure* luaY_parser(lua_State* L, ZIO* z, Mbuffer* buff, Dyndata* dyd, const char* name, int firstchar);
+LUAI_FUNC int luaY_nvarstack(FuncState *fs);
+LUAI_FUNC LClosure *luaY_parser(lua_State *L, ZIO *z, Mbuffer *buff,
+                                Dyndata *dyd, const char *name, int firstchar);
 
 #endif

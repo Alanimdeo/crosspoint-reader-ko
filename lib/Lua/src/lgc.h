@@ -36,7 +36,8 @@
 #define GCScallfin 7
 #define GCSpause 8
 
-#define issweepphase(g) (GCSswpallgc <= (g)->gcstate && (g)->gcstate <= GCSswpend)
+#define issweepphase(g)                                                        \
+  (GCSswpallgc <= (g)->gcstate && (g)->gcstate <= GCSswpend)
 
 /*
 ** macro to tell when main invariant (white objects cannot point to black
@@ -76,7 +77,8 @@
 
 #define iswhite(x) testbits((x)->marked, WHITEBITS)
 #define isblack(x) testbit((x)->marked, BLACKBIT)
-#define isgray(x) /* neither white nor black */ (!testbits((x)->marked, WHITEBITS | bitmask(BLACKBIT)))
+#define isgray(x) /* neither white nor black */                                \
+  (!testbits((x)->marked, WHITEBITS | bitmask(BLACKBIT)))
 
 #define tofinalize(x) testbit((x)->marked, FINALIZEDBIT)
 
@@ -87,7 +89,7 @@
 #define changewhite(x) ((x)->marked ^= WHITEBITS)
 #define nw2black(x) check_exp(!iswhite(x), l_setbit((x)->marked, BLACKBIT))
 
-#define luaC_white(g) cast_byte((g)->currentwhite& WHITEBITS)
+#define luaC_white(g) cast_byte((g)->currentwhite &WHITEBITS)
 
 /* object age in generational mode */
 #define G_NEW 0      /* created in current cycle */
@@ -104,7 +106,8 @@
 #define setage(o, a) ((o)->marked = cast_byte(((o)->marked & (~AGEBITS)) | a))
 #define isold(o) (getage(o) > G_SURVIVAL)
 
-#define changeage(o, f, t) check_exp(getage(o) == (f), (o)->marked ^= ((f) ^ (t)))
+#define changeage(o, f, t)                                                     \
+  check_exp(getage(o) == (f), (o)->marked ^= ((f) ^ (t)))
 
 /* Default Values for GC parameters */
 #define LUAI_GENMAJORMUL 100
@@ -146,37 +149,43 @@
 ** 'condchangemem' is used only for heavy tests (forcing a full
 ** GC cycle on every opportunity)
 */
-#define luaC_condGC(L, pre, pos) \
-  {                              \
-    if (G(L)->GCdebt > 0) {      \
-      pre;                       \
-      luaC_step(L);              \
-      pos;                       \
-    };                           \
-    condchangemem(L, pre, pos);  \
+#define luaC_condGC(L, pre, pos)                                               \
+  {                                                                            \
+    if (G(L)->GCdebt > 0) {                                                    \
+      pre;                                                                     \
+      luaC_step(L);                                                            \
+      pos;                                                                     \
+    };                                                                         \
+    condchangemem(L, pre, pos);                                                \
   }
 
 /* more often than not, 'pre'/'pos' are empty */
 #define luaC_checkGC(L) luaC_condGC(L, (void)0, (void)0)
 
-#define luaC_objbarrier(L, p, o) ((isblack(p) && iswhite(o)) ? luaC_barrier_(L, obj2gco(p), obj2gco(o)) : cast_void(0))
+#define luaC_objbarrier(L, p, o)                                               \
+  ((isblack(p) && iswhite(o)) ? luaC_barrier_(L, obj2gco(p), obj2gco(o))       \
+                              : cast_void(0))
 
-#define luaC_barrier(L, p, v) (iscollectable(v) ? luaC_objbarrier(L, p, gcvalue(v)) : cast_void(0))
+#define luaC_barrier(L, p, v)                                                  \
+  (iscollectable(v) ? luaC_objbarrier(L, p, gcvalue(v)) : cast_void(0))
 
-#define luaC_objbarrierback(L, p, o) ((isblack(p) && iswhite(o)) ? luaC_barrierback_(L, p) : cast_void(0))
+#define luaC_objbarrierback(L, p, o)                                           \
+  ((isblack(p) && iswhite(o)) ? luaC_barrierback_(L, p) : cast_void(0))
 
-#define luaC_barrierback(L, p, v) (iscollectable(v) ? luaC_objbarrierback(L, p, gcvalue(v)) : cast_void(0))
+#define luaC_barrierback(L, p, v)                                              \
+  (iscollectable(v) ? luaC_objbarrierback(L, p, gcvalue(v)) : cast_void(0))
 
-LUAI_FUNC void luaC_fix(lua_State* L, GCObject* o);
-LUAI_FUNC void luaC_freeallobjects(lua_State* L);
-LUAI_FUNC void luaC_step(lua_State* L);
-LUAI_FUNC void luaC_runtilstate(lua_State* L, int statesmask);
-LUAI_FUNC void luaC_fullgc(lua_State* L, int isemergency);
-LUAI_FUNC GCObject* luaC_newobj(lua_State* L, int tt, size_t sz);
-LUAI_FUNC GCObject* luaC_newobjdt(lua_State* L, int tt, size_t sz, size_t offset);
-LUAI_FUNC void luaC_barrier_(lua_State* L, GCObject* o, GCObject* v);
-LUAI_FUNC void luaC_barrierback_(lua_State* L, GCObject* o);
-LUAI_FUNC void luaC_checkfinalizer(lua_State* L, GCObject* o, Table* mt);
-LUAI_FUNC void luaC_changemode(lua_State* L, int newmode);
+LUAI_FUNC void luaC_fix(lua_State *L, GCObject *o);
+LUAI_FUNC void luaC_freeallobjects(lua_State *L);
+LUAI_FUNC void luaC_step(lua_State *L);
+LUAI_FUNC void luaC_runtilstate(lua_State *L, int statesmask);
+LUAI_FUNC void luaC_fullgc(lua_State *L, int isemergency);
+LUAI_FUNC GCObject *luaC_newobj(lua_State *L, int tt, size_t sz);
+LUAI_FUNC GCObject *luaC_newobjdt(lua_State *L, int tt, size_t sz,
+                                  size_t offset);
+LUAI_FUNC void luaC_barrier_(lua_State *L, GCObject *o, GCObject *v);
+LUAI_FUNC void luaC_barrierback_(lua_State *L, GCObject *o);
+LUAI_FUNC void luaC_checkfinalizer(lua_State *L, GCObject *o, Table *mt);
+LUAI_FUNC void luaC_changemode(lua_State *L, int newmode);
 
 #endif

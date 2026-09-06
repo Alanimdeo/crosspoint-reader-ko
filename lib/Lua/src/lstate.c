@@ -41,7 +41,7 @@ typedef struct LG {
   global_State g;
 } LG;
 
-#define fromstate(L) (cast(LX*, cast(lu_byte*, (L)) - offsetof(LX, l)))
+#define fromstate(L) (cast(LX *, cast(lu_byte *, (L)) - offsetof(LX, l)))
 
 /*
 ** A macro to create a "random" seed when a state is created;
@@ -56,14 +56,14 @@ typedef struct LG {
 ** Rely on Address Space Layout Randomization (if present) and
 ** current time.
 */
-#define addbuff(b, p, e)          \
-  {                               \
-    size_t t = cast_sizet(e);     \
-    memcpy(b + p, &t, sizeof(t)); \
-    p += sizeof(t);               \
+#define addbuff(b, p, e)                                                       \
+  {                                                                            \
+    size_t t = cast_sizet(e);                                                  \
+    memcpy(b + p, &t, sizeof(t));                                              \
+    p += sizeof(t);                                                            \
   }
 
-static unsigned int luai_makeseed(lua_State* L) {
+static unsigned int luai_makeseed(lua_State *L) {
   char buff[3 * sizeof(size_t)];
   unsigned int h = cast_uint(time(NULL));
   int p = 0;
@@ -80,22 +80,23 @@ static unsigned int luai_makeseed(lua_State* L) {
 ** set GCdebt to a new value keeping the value (totalbytes + GCdebt)
 ** invariant (and avoiding underflows in 'totalbytes')
 */
-void luaE_setdebt(global_State* g, l_mem debt) {
+void luaE_setdebt(global_State *g, l_mem debt) {
   l_mem tb = gettotalbytes(g);
   lua_assert(tb > 0);
-  if (debt < tb - MAX_LMEM) debt = tb - MAX_LMEM; /* will make 'totalbytes == MAX_LMEM' */
+  if (debt < tb - MAX_LMEM)
+    debt = tb - MAX_LMEM; /* will make 'totalbytes == MAX_LMEM' */
   g->totalbytes = tb - debt;
   g->GCdebt = debt;
 }
 
-LUA_API int lua_setcstacklimit(lua_State* L, unsigned int limit) {
+LUA_API int lua_setcstacklimit(lua_State *L, unsigned int limit) {
   UNUSED(L);
   UNUSED(limit);
   return LUAI_MAXCCALLS; /* warning?? */
 }
 
-CallInfo* luaE_extendCI(lua_State* L) {
-  CallInfo* ci;
+CallInfo *luaE_extendCI(lua_State *L) {
+  CallInfo *ci;
   lua_assert(L->ci->next == NULL);
   ci = luaM_new(L, CallInfo);
   lua_assert(L->ci->next == NULL);
@@ -110,9 +111,9 @@ CallInfo* luaE_extendCI(lua_State* L) {
 /*
 ** free all CallInfo structures not in use by a thread
 */
-void luaE_freeCI(lua_State* L) {
-  CallInfo* ci = L->ci;
-  CallInfo* next = ci->next;
+void luaE_freeCI(lua_State *L) {
+  CallInfo *ci = L->ci;
+  CallInfo *next = ci->next;
   ci->next = NULL;
   while ((ci = next) != NULL) {
     next = ci->next;
@@ -125,12 +126,13 @@ void luaE_freeCI(lua_State* L) {
 ** free half of the CallInfo structures not in use by a thread,
 ** keeping the first one.
 */
-void luaE_shrinkCI(lua_State* L) {
-  CallInfo* ci = L->ci->next; /* first free CallInfo */
-  CallInfo* next;
-  if (ci == NULL) return;             /* no extra elements */
+void luaE_shrinkCI(lua_State *L) {
+  CallInfo *ci = L->ci->next; /* first free CallInfo */
+  CallInfo *next;
+  if (ci == NULL)
+    return;                           /* no extra elements */
   while ((next = ci->next) != NULL) { /* two extra elements? */
-    CallInfo* next2 = next->next;     /* next's next */
+    CallInfo *next2 = next->next;     /* next's next */
     ci->next = next2;                 /* remove next from the list */
     L->nci--;
     luaM_free(L, next); /* free next */
@@ -150,25 +152,27 @@ void luaE_shrinkCI(lua_State* L) {
 ** not much larger, does not report an error (to allow overflow
 ** handling to work).
 */
-void luaE_checkcstack(lua_State* L) {
+void luaE_checkcstack(lua_State *L) {
   if (getCcalls(L) == LUAI_MAXCCALLS)
     luaG_runerror(L, "C stack overflow");
   else if (getCcalls(L) >= (LUAI_MAXCCALLS / 10 * 11))
     luaD_throw(L, LUA_ERRERR); /* error while handling stack error */
 }
 
-LUAI_FUNC void luaE_incCstack(lua_State* L) {
+LUAI_FUNC void luaE_incCstack(lua_State *L) {
   L->nCcalls++;
-  if (l_unlikely(getCcalls(L) >= LUAI_MAXCCALLS)) luaE_checkcstack(L);
+  if (l_unlikely(getCcalls(L) >= LUAI_MAXCCALLS))
+    luaE_checkcstack(L);
 }
 
-static void stack_init(lua_State* L1, lua_State* L) {
+static void stack_init(lua_State *L1, lua_State *L) {
   int i;
-  CallInfo* ci;
+  CallInfo *ci;
   /* initialize stack array */
   L1->stack.p = luaM_newvector(L, BASIC_STACK_SIZE + EXTRA_STACK, StackValue);
   L1->tbclist.p = L1->stack.p;
-  for (i = 0; i < BASIC_STACK_SIZE + EXTRA_STACK; i++) setnilvalue(s2v(L1->stack.p + i)); /* erase new stack */
+  for (i = 0; i < BASIC_STACK_SIZE + EXTRA_STACK; i++)
+    setnilvalue(s2v(L1->stack.p + i)); /* erase new stack */
   L1->top.p = L1->stack.p;
   L1->stack_last.p = L1->stack.p + BASIC_STACK_SIZE;
   /* initialize first ci */
@@ -184,9 +188,10 @@ static void stack_init(lua_State* L1, lua_State* L) {
   L1->ci = ci;
 }
 
-static void freestack(lua_State* L) {
-  if (L->stack.p == NULL) return; /* stack not completely built yet */
-  L->ci = &L->base_ci;            /* free the entire 'ci' list */
+static void freestack(lua_State *L) {
+  if (L->stack.p == NULL)
+    return;            /* stack not completely built yet */
+  L->ci = &L->base_ci; /* free the entire 'ci' list */
   luaE_freeCI(L);
   lua_assert(L->nci == 0);
   luaM_freearray(L, L->stack.p, stacksize(L) + EXTRA_STACK); /* free stack */
@@ -195,9 +200,9 @@ static void freestack(lua_State* L) {
 /*
 ** Create registry table and its predefined values
 */
-static void init_registry(lua_State* L, global_State* g) {
+static void init_registry(lua_State *L, global_State *g) {
   /* create registry */
-  Table* registry = luaH_new(L);
+  Table *registry = luaH_new(L);
   sethvalue(L, &g->l_registry, registry);
   luaH_resize(L, registry, LUA_RIDX_LAST, 0);
   /* registry[LUA_RIDX_MAINTHREAD] = L */
@@ -209,8 +214,8 @@ static void init_registry(lua_State* L, global_State* g) {
 /*
 ** open parts of the state that may cause memory-allocation errors.
 */
-static void f_luaopen(lua_State* L, void* ud) {
-  global_State* g = G(L);
+static void f_luaopen(lua_State *L, void *ud) {
+  global_State *g = G(L);
   UNUSED(ud);
   stack_init(L, L); /* init stack */
   init_registry(L, g);
@@ -226,7 +231,7 @@ static void f_luaopen(lua_State* L, void* ud) {
 ** preinitialize a thread with consistent values without allocating
 ** any memory (to avoid errors)
 */
-static void preinit_thread(lua_State* L, global_State* g) {
+static void preinit_thread(lua_State *L, global_State *g) {
   G(L) = g;
   L->stack.p = NULL;
   L->ci = NULL;
@@ -245,8 +250,8 @@ static void preinit_thread(lua_State* L, global_State* g) {
   L->oldpc = 0;
 }
 
-static void close_state(lua_State* L) {
-  global_State* g = G(L);
+static void close_state(lua_State *L) {
+  global_State *g = G(L);
   if (!completestate(g))               /* closing a partially built state? */
     luaC_freeallobjects(L);            /* just collect its objects */
   else {                               /* closing a fully built state */
@@ -261,10 +266,10 @@ static void close_state(lua_State* L) {
   (*g->frealloc)(g->ud, fromstate(L), sizeof(LG), 0); /* free main block */
 }
 
-LUA_API lua_State* lua_newthread(lua_State* L) {
-  global_State* g = G(L);
-  GCObject* o;
-  lua_State* L1;
+LUA_API lua_State *lua_newthread(lua_State *L) {
+  global_State *g = G(L);
+  GCObject *o;
+  lua_State *L1;
   lua_lock(L);
   luaC_checkGC(L);
   /* create new thread */
@@ -279,15 +284,16 @@ LUA_API lua_State* lua_newthread(lua_State* L) {
   L1->hook = L->hook;
   resethookcount(L1);
   /* initialize L1 extra space */
-  memcpy(lua_getextraspace(L1), lua_getextraspace(g->mainthread), LUA_EXTRASPACE);
+  memcpy(lua_getextraspace(L1), lua_getextraspace(g->mainthread),
+         LUA_EXTRASPACE);
   luai_userstatethread(L, L1);
   stack_init(L1, L); /* init stack */
   lua_unlock(L);
   return L1;
 }
 
-void luaE_freethread(lua_State* L, lua_State* L1) {
-  LX* l = fromstate(L1);
+void luaE_freethread(lua_State *L, lua_State *L1) {
+  LX *l = fromstate(L1);
   luaF_closeupval(L1, L1->stack.p); /* close all upvalues */
   lua_assert(L1->openupval == NULL);
   luai_userstatefree(L, L1);
@@ -295,12 +301,13 @@ void luaE_freethread(lua_State* L, lua_State* L1) {
   luaM_free(L, l);
 }
 
-int luaE_resetthread(lua_State* L, int status) {
-  CallInfo* ci = L->ci = &L->base_ci; /* unwind CallInfo list */
+int luaE_resetthread(lua_State *L, int status) {
+  CallInfo *ci = L->ci = &L->base_ci; /* unwind CallInfo list */
   setnilvalue(s2v(L->stack.p));       /* 'function' entry for basic 'ci' */
   ci->func.p = L->stack.p;
   ci->callstatus = CIST_C;
-  if (status == LUA_YIELD) status = LUA_OK;
+  if (status == LUA_YIELD)
+    status = LUA_OK;
   L->status = LUA_OK; /* so it can run __close metamethods */
   status = luaD_closeprotected(L, 1, status);
   if (status != LUA_OK) /* errors? */
@@ -312,7 +319,7 @@ int luaE_resetthread(lua_State* L, int status) {
   return status;
 }
 
-LUA_API int lua_closethread(lua_State* L, lua_State* from) {
+LUA_API int lua_closethread(lua_State *L, lua_State *from) {
   int status;
   lua_lock(L);
   L->nCcalls = (from) ? getCcalls(from) : 0;
@@ -324,14 +331,15 @@ LUA_API int lua_closethread(lua_State* L, lua_State* from) {
 /*
 ** Deprecated! Use 'lua_closethread' instead.
 */
-LUA_API int lua_resetthread(lua_State* L) { return lua_closethread(L, NULL); }
+LUA_API int lua_resetthread(lua_State *L) { return lua_closethread(L, NULL); }
 
-LUA_API lua_State* lua_newstate(lua_Alloc f, void* ud) {
+LUA_API lua_State *lua_newstate(lua_Alloc f, void *ud) {
   int i;
-  lua_State* L;
-  global_State* g;
-  LG* l = cast(LG*, (*f)(ud, NULL, LUA_TTHREAD, sizeof(LG)));
-  if (l == NULL) return NULL;
+  lua_State *L;
+  global_State *g;
+  LG *l = cast(LG *, (*f)(ud, NULL, LUA_TTHREAD, sizeof(LG)));
+  if (l == NULL)
+    return NULL;
   L = &l->l.l;
   g = &l->g;
   L->tt = LUA_VTHREAD;
@@ -372,7 +380,8 @@ LUA_API lua_State* lua_newstate(lua_Alloc f, void* ud) {
   g->gcstepsize = LUAI_GCSTEPSIZE;
   setgcparam(g->genmajormul, LUAI_GENMAJORMUL);
   g->genminormul = LUAI_GENMINORMUL;
-  for (i = 0; i < LUA_NUMTAGS; i++) g->mt[i] = NULL;
+  for (i = 0; i < LUA_NUMTAGS; i++)
+    g->mt[i] = NULL;
   if (luaD_rawrunprotected(L, f_luaopen, NULL) != LUA_OK) {
     /* memory allocation error: free partial state */
     close_state(L);
@@ -381,23 +390,25 @@ LUA_API lua_State* lua_newstate(lua_Alloc f, void* ud) {
   return L;
 }
 
-LUA_API void lua_close(lua_State* L) {
+LUA_API void lua_close(lua_State *L) {
   lua_lock(L);
   L = G(L)->mainthread; /* only the main thread can be closed */
   close_state(L);
 }
 
-void luaE_warning(lua_State* L, const char* msg, int tocont) {
+void luaE_warning(lua_State *L, const char *msg, int tocont) {
   lua_WarnFunction wf = G(L)->warnf;
-  if (wf != NULL) wf(G(L)->ud_warn, msg, tocont);
+  if (wf != NULL)
+    wf(G(L)->ud_warn, msg, tocont);
 }
 
 /*
 ** Generate a warning from an error message
 */
-void luaE_warnerror(lua_State* L, const char* where) {
-  TValue* errobj = s2v(L->top.p - 1); /* error object */
-  const char* msg = (ttisstring(errobj)) ? svalue(errobj) : "error object is not a string";
+void luaE_warnerror(lua_State *L, const char *where) {
+  TValue *errobj = s2v(L->top.p - 1); /* error object */
+  const char *msg =
+      (ttisstring(errobj)) ? svalue(errobj) : "error object is not a string";
   /* produce warning "error in %s (%s)" (where, msg) */
   luaE_warning(L, "error in ", 1);
   luaE_warning(L, where, 1);

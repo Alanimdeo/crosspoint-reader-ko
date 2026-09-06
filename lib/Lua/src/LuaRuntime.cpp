@@ -13,16 +13,18 @@ extern "C" {
 }
 
 // Callback used by Lua for all VM allocations. `ud` is the LuaRuntime*.
-void* LuaRuntime::allocFn(void* ud, void* ptr, size_t osize, size_t nsize) {
-  auto* self = static_cast<LuaRuntime*>(ud);
+void *LuaRuntime::allocFn(void *ud, void *ptr, size_t osize, size_t nsize) {
+  auto *self = static_cast<LuaRuntime *>(ud);
   if (nsize == 0) {
     free(ptr);
-    if (self) self->trackAlloc(-static_cast<ptrdiff_t>(osize));
+    if (self)
+      self->trackAlloc(-static_cast<ptrdiff_t>(osize));
     return nullptr;
   }
-  void* newPtr = realloc(ptr, nsize);
+  void *newPtr = realloc(ptr, nsize);
   if (newPtr && self) {
-    self->trackAlloc(static_cast<ptrdiff_t>(nsize) - static_cast<ptrdiff_t>(osize));
+    self->trackAlloc(static_cast<ptrdiff_t>(nsize) -
+                     static_cast<ptrdiff_t>(osize));
   }
   return newPtr;
 }
@@ -33,20 +35,22 @@ void LuaRuntime::trackAlloc(ptrdiff_t delta) {
     currentAlloc_ = (currentAlloc_ > amount) ? currentAlloc_ - amount : 0;
   } else {
     currentAlloc_ += static_cast<size_t>(delta);
-    if (currentAlloc_ > peakAlloc_) peakAlloc_ = currentAlloc_;
+    if (currentAlloc_ > peakAlloc_)
+      peakAlloc_ = currentAlloc_;
   }
 }
 
 // Custom panic handler: log instead of aborting so we can clean up.
 namespace {
-int panicHandler(lua_State* L) {
-  const char* msg = lua_tostring(L, -1);
+int panicHandler(lua_State *L) {
+  const char *msg = lua_tostring(L, -1);
   LOG_ERR("LUA", "panic: %s", msg ? msg : "(unknown)");
-  return 0;  // Return 0; pcall unwinds without aborting the firmware.
+  return 0; // Return 0; pcall unwinds without aborting the firmware.
 }
-}  // namespace
+} // namespace
 
-LuaRuntime::LuaRuntime(size_t maxScriptBytes) : maxScriptBytes_(maxScriptBytes) {
+LuaRuntime::LuaRuntime(size_t maxScriptBytes)
+    : maxScriptBytes_(maxScriptBytes) {
   L_ = luaL_newstate();
   if (!L_) {
     LOG_ERR("LUA", "luaL_newstate failed (OOM)");
@@ -82,7 +86,8 @@ LuaRuntime::~LuaRuntime() {
   }
 }
 
-bool LuaRuntime::runString(const char* script, size_t length, std::string& error) {
+bool LuaRuntime::runString(const char *script, size_t length,
+                           std::string &error) {
   if (!L_) {
     error = "Lua state unavailable";
     return false;
@@ -102,7 +107,8 @@ bool LuaRuntime::runString(const char* script, size_t length, std::string& error
   // Run the chunk now (caller was prepared to run immediately).
   const int callStatus = lua_pcall(L_, 0, LUA_MULTRET, 0);
   if (callStatus != LUA_OK) {
-    const char* msg = lua_tostring(L_, -1) ? lua_tostring(L_, -1) : "(no error message)";
+    const char *msg =
+        lua_tostring(L_, -1) ? lua_tostring(L_, -1) : "(no error message)";
     error = msg;
     // Copy before popping (Lua allocator may re-use the string buffer).
     lua_pop(L_, 1);
@@ -112,7 +118,7 @@ bool LuaRuntime::runString(const char* script, size_t length, std::string& error
   return true;
 }
 
-bool LuaRuntime::loadFileForLateRun(const char* path, std::string& error) {
+bool LuaRuntime::loadFileForLateRun(const char *path, std::string &error) {
   HalFile file;
   if (!Storage.openFileForRead("LUA", path, file)) {
     error = "Cannot open script file";
@@ -141,7 +147,8 @@ bool LuaRuntime::loadFileForLateRun(const char* path, std::string& error) {
   buf[size] = '\0';
   file.close();
 
-  const int loadStatus = luaL_loadbufferx(L_, buf.get(), size, "=sdscript", "t");
+  const int loadStatus =
+      luaL_loadbufferx(L_, buf.get(), size, "=sdscript", "t");
   if (loadStatus != LUA_OK) {
     error = lua_tostring(L_, -1) ? lua_tostring(L_, -1) : "compile error";
     lua_pop(L_, 1);
@@ -151,12 +158,15 @@ bool LuaRuntime::loadFileForLateRun(const char* path, std::string& error) {
   return true;
 }
 
-bool LuaRuntime::runFile(const char* path, std::string& error) {
-  if (!loadFileForLateRun(path, error)) return false;
-  if (!L_) return false;
+bool LuaRuntime::runFile(const char *path, std::string &error) {
+  if (!loadFileForLateRun(path, error))
+    return false;
+  if (!L_)
+    return false;
   const int callStatus = lua_pcall(L_, 0, LUA_MULTRET, 0);
   if (callStatus != LUA_OK) {
-    const char* msg = lua_tostring(L_, -1) ? lua_tostring(L_, -1) : "(no error message)";
+    const char *msg =
+        lua_tostring(L_, -1) ? lua_tostring(L_, -1) : "(no error message)";
     error = msg;
     lua_pop(L_, 1);
     LOG_ERR("LUA", "runtime error: %s", msg);
@@ -176,15 +186,16 @@ constexpr size_t MAX_FILE_IO_BYTES = 64 * 1024;
 
 // Normalize a Lua filename argument to a rooted path. Returns the path in a
 // caller buffer; rejects paths that would escape the SD root.
-const char* checkPath(lua_State* L, int idx, char* buf, size_t bufLen) {
-  const char* p = luaL_checkstring(L, idx);
-  if (!p) return nullptr;
+const char *checkPath(lua_State *L, int idx, char *buf, size_t bufLen) {
+  const char *p = luaL_checkstring(L, idx);
+  if (!p)
+    return nullptr;
   if (p[0] != '/') {
     luaL_error(L, "path must be absolute (starts with /)");
     return nullptr;
   }
   // Reject ".." components so scripts cannot escape the root tree.
-  const char* q = p;
+  const char *q = p;
   while ((q = strstr(q, ".."))) {
     const char prev = (q == p) ? '/' : q[-1];
     const char nxt = q[2];
@@ -198,9 +209,10 @@ const char* checkPath(lua_State* L, int idx, char* buf, size_t bufLen) {
   return buf;
 }
 
-int l_file_read(lua_State* L) {
+int l_file_read(lua_State *L) {
   char path[256];
-  if (!checkPath(L, 1, path, sizeof(path))) return 0;
+  if (!checkPath(L, 1, path, sizeof(path)))
+    return 0;
 
   HalFile file;
   if (!Storage.openFileForRead("LUA", path, file)) {
@@ -229,9 +241,9 @@ int l_file_read(lua_State* L) {
 }
 
 // Read a Lua string argument (may contain embedded NULs) into an std::string.
-bool readDataArg(lua_State* L, int idx, size_t maxBytes, std::string& out) {
+bool readDataArg(lua_State *L, int idx, size_t maxBytes, std::string &out) {
   size_t len = 0;
-  const char* data = luaL_checklstring(L, idx, &len);
+  const char *data = luaL_checklstring(L, idx, &len);
   if (len > maxBytes) {
     luaL_error(L, "data too large");
     return false;
@@ -240,11 +252,13 @@ bool readDataArg(lua_State* L, int idx, size_t maxBytes, std::string& out) {
   return true;
 }
 
-int l_file_write_impl(lua_State* L, bool append) {
+int l_file_write_impl(lua_State *L, bool append) {
   char path[256];
-  if (!checkPath(L, 1, path, sizeof(path))) return 0;
+  if (!checkPath(L, 1, path, sizeof(path)))
+    return 0;
   std::string data;
-  if (!readDataArg(L, 2, MAX_FILE_IO_BYTES, data)) return 0;
+  if (!readDataArg(L, 2, MAX_FILE_IO_BYTES, data))
+    return 0;
 
   // Open reader first to preserve existing size when appending isn't needed.
   HalFile file;
@@ -257,7 +271,8 @@ int l_file_write_impl(lua_State* L, bool append) {
       const size_t sz = in.size();
       if (sz <= MAX_FILE_IO_BYTES) {
         existing.resize(sz);
-        if (sz > 0 && in.read(existing.data(), sz) != static_cast<int>(sz)) existing.clear();
+        if (sz > 0 && in.read(existing.data(), sz) != static_cast<int>(sz))
+          existing.clear();
       }
       in.close();
     }
@@ -275,12 +290,13 @@ int l_file_write_impl(lua_State* L, bool append) {
   return 1;
 }
 
-int l_file_write(lua_State* L) { return l_file_write_impl(L, false); }
-int l_file_append(lua_State* L) { return l_file_write_impl(L, true); }
+int l_file_write(lua_State *L) { return l_file_write_impl(L, false); }
+int l_file_append(lua_State *L) { return l_file_write_impl(L, true); }
 
-int l_file_list(lua_State* L) {
+int l_file_list(lua_State *L) {
   char path[256];
-  if (!checkPath(L, 1, path, sizeof(path))) return 0;
+  if (!checkPath(L, 1, path, sizeof(path)))
+    return 0;
 
   auto dir = Storage.open(path);
   if (!dir || !dir.isDirectory()) {
@@ -307,30 +323,34 @@ int l_file_list(lua_State* L) {
   return 1;
 }
 
-int l_file_exists(lua_State* L) {
+int l_file_exists(lua_State *L) {
   char path[256];
-  if (!checkPath(L, 1, path, sizeof(path))) return 0;
+  if (!checkPath(L, 1, path, sizeof(path)))
+    return 0;
   lua_pushboolean(L, Storage.exists(path) ? 1 : 0);
   return 1;
 }
 
-int l_file_remove(lua_State* L) {
+int l_file_remove(lua_State *L) {
   char path[256];
-  if (!checkPath(L, 1, path, sizeof(path))) return 0;
+  if (!checkPath(L, 1, path, sizeof(path)))
+    return 0;
   lua_pushboolean(L, Storage.remove(path) ? 1 : 0);
   return 1;
 }
 
-int l_file_mkdir(lua_State* L) {
+int l_file_mkdir(lua_State *L) {
   char path[256];
-  if (!checkPath(L, 1, path, sizeof(path))) return 0;
+  if (!checkPath(L, 1, path, sizeof(path)))
+    return 0;
   lua_pushboolean(L, Storage.mkdir(path) ? 1 : 0);
   return 1;
 }
 
-int l_file_isdir(lua_State* L) {
+int l_file_isdir(lua_State *L) {
   char path[256];
-  if (!checkPath(L, 1, path, sizeof(path))) return 0;
+  if (!checkPath(L, 1, path, sizeof(path)))
+    return 0;
   auto dir = Storage.open(path, O_RDONLY);
   if (!dir) {
     lua_pushboolean(L, 0);
@@ -343,23 +363,26 @@ int l_file_isdir(lua_State* L) {
 }
 
 // Register the cp.file table as a global "cp" table with sub-table "file".
-void registerFileModule(lua_State* L) {
+void registerFileModule(lua_State *L) {
   static const luaL_Reg kFileLib[] = {
-      {"read", l_file_read},     {"write", l_file_write},   {"append", l_file_append},
-      {"list", l_file_list},     {"exists", l_file_exists}, {"isdir", l_file_isdir},
-      {"remove", l_file_remove}, {"mkdir", l_file_mkdir},   {nullptr, nullptr},
+      {"read", l_file_read},     {"write", l_file_write},
+      {"append", l_file_append}, {"list", l_file_list},
+      {"exists", l_file_exists}, {"isdir", l_file_isdir},
+      {"remove", l_file_remove}, {"mkdir", l_file_mkdir},
+      {nullptr, nullptr},
   };
 
-  lua_newtable(L);                // cp
-  lua_newtable(L);                // cp file
-  luaL_setfuncs(L, kFileLib, 0);  // cp file = { funcs }
-  lua_setfield(L, -2, "file");    // cp.file = file
-  lua_setglobal(L, "cp");         // _G.cp = cp
+  lua_newtable(L);               // cp
+  lua_newtable(L);               // cp file
+  luaL_setfuncs(L, kFileLib, 0); // cp file = { funcs }
+  lua_setfield(L, -2, "file");   // cp.file = file
+  lua_setglobal(L, "cp");        // _G.cp = cp
 }
 
-}  // namespace
+} // namespace
 
 void LuaRuntime::registerHostApis() {
-  if (!L_) return;
+  if (!L_)
+    return;
   registerFileModule(L_);
 }

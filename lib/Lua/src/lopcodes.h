@@ -104,13 +104,16 @@ enum OpMode { iABC, iABx, iAsBx, iAx, isJ }; /* basic instruction formats */
 */
 
 #define GET_OPCODE(i) (cast(OpCode, ((i) >> POS_OP) & MASK1(SIZE_OP, 0)))
-#define SET_OPCODE(i, o) \
-  ((i) = (((i) & MASK0(SIZE_OP, POS_OP)) | ((cast(Instruction, o) << POS_OP) & MASK1(SIZE_OP, POS_OP))))
+#define SET_OPCODE(i, o)                                                       \
+  ((i) = (((i) & MASK0(SIZE_OP, POS_OP)) |                                     \
+          ((cast(Instruction, o) << POS_OP) & MASK1(SIZE_OP, POS_OP))))
 
 #define checkopm(i, m) (getOpMode(GET_OPCODE(i)) == m)
 
 #define getarg(i, pos, size) (cast_int(((i) >> (pos)) & MASK1(size, 0)))
-#define setarg(i, v, pos, size) ((i) = (((i) & MASK0(size, pos)) | ((cast(Instruction, v) << pos) & MASK1(size, pos))))
+#define setarg(i, v, pos, size)                                                \
+  ((i) = (((i) & MASK0(size, pos)) |                                           \
+          ((cast(Instruction, v) << pos) & MASK1(size, pos))))
 
 #define GETARG_A(i) getarg(i, POS_A, SIZE_A)
 #define SETARG_A(i, v) setarg(i, v, POS_A, SIZE_A)
@@ -123,7 +126,8 @@ enum OpMode { iABC, iABx, iAsBx, iAx, isJ }; /* basic instruction formats */
 #define GETARG_sC(i) sC2int(GETARG_C(i))
 #define SETARG_C(i, v) setarg(i, v, POS_C, SIZE_C)
 
-#define TESTARG_k(i) check_exp(checkopm(i, iABC), (cast_int(((i) & (1u << POS_k)))))
+#define TESTARG_k(i)                                                           \
+  check_exp(checkopm(i, iABC), (cast_int(((i) & (1u << POS_k)))))
 #define GETARG_k(i) check_exp(checkopm(i, iABC), getarg(i, POS_k, 1))
 #define SETARG_k(i, v) setarg(i, v, POS_k, 1)
 
@@ -133,23 +137,29 @@ enum OpMode { iABC, iABx, iAsBx, iAx, isJ }; /* basic instruction formats */
 #define GETARG_Ax(i) check_exp(checkopm(i, iAx), getarg(i, POS_Ax, SIZE_Ax))
 #define SETARG_Ax(i, v) setarg(i, v, POS_Ax, SIZE_Ax)
 
-#define GETARG_sBx(i) check_exp(checkopm(i, iAsBx), getarg(i, POS_Bx, SIZE_Bx) - OFFSET_sBx)
+#define GETARG_sBx(i)                                                          \
+  check_exp(checkopm(i, iAsBx), getarg(i, POS_Bx, SIZE_Bx) - OFFSET_sBx)
 #define SETARG_sBx(i, b) SETARG_Bx((i), cast_uint((b) + OFFSET_sBx))
 
-#define GETARG_sJ(i) check_exp(checkopm(i, isJ), getarg(i, POS_sJ, SIZE_sJ) - OFFSET_sJ)
+#define GETARG_sJ(i)                                                           \
+  check_exp(checkopm(i, isJ), getarg(i, POS_sJ, SIZE_sJ) - OFFSET_sJ)
 #define SETARG_sJ(i, j) setarg(i, cast_uint((j) + OFFSET_sJ), POS_sJ, SIZE_sJ)
 
-#define CREATE_ABCk(o, a, b, c, k)                                                                        \
-  ((cast(Instruction, o) << POS_OP) | (cast(Instruction, a) << POS_A) | (cast(Instruction, b) << POS_B) | \
-   (cast(Instruction, c) << POS_C) | (cast(Instruction, k) << POS_k))
+#define CREATE_ABCk(o, a, b, c, k)                                             \
+  ((cast(Instruction, o) << POS_OP) | (cast(Instruction, a) << POS_A) |        \
+   (cast(Instruction, b) << POS_B) | (cast(Instruction, c) << POS_C) |         \
+   (cast(Instruction, k) << POS_k))
 
-#define CREATE_ABx(o, a, bc) \
-  ((cast(Instruction, o) << POS_OP) | (cast(Instruction, a) << POS_A) | (cast(Instruction, bc) << POS_Bx))
+#define CREATE_ABx(o, a, bc)                                                   \
+  ((cast(Instruction, o) << POS_OP) | (cast(Instruction, a) << POS_A) |        \
+   (cast(Instruction, bc) << POS_Bx))
 
-#define CREATE_Ax(o, a) ((cast(Instruction, o) << POS_OP) | (cast(Instruction, a) << POS_Ax))
+#define CREATE_Ax(o, a)                                                        \
+  ((cast(Instruction, o) << POS_OP) | (cast(Instruction, a) << POS_Ax))
 
-#define CREATE_sJ(o, j, k) \
-  ((cast(Instruction, o) << POS_OP) | (cast(Instruction, j) << POS_sJ) | (cast(Instruction, k) << POS_k))
+#define CREATE_sJ(o, j, k)                                                     \
+  ((cast(Instruction, o) << POS_OP) | (cast(Instruction, j) << POS_sJ) |       \
+   (cast(Instruction, k) << POS_k))
 
 #if !defined(MAXINDEXRK) /* (for debugging only) */
 #define MAXINDEXRK MAXARG_B
@@ -180,24 +190,26 @@ typedef enum {
   OP_LOADF,      /*	A sBx	R[A] := (lua_Number)sBx				*/
   OP_LOADK,      /*	A Bx	R[A] := K[Bx]					*/
   OP_LOADKX,     /*	A	R[A] := K[extra arg]				*/
-  OP_LOADFALSE,  /*	A	R[A] := false					*/
+  OP_LOADFALSE,  /*	A	R[A] := false  */
   OP_LFALSESKIP, /*A	R[A] := false; pc++	(*)			*/
-  OP_LOADTRUE,   /*	A	R[A] := true					*/
-  OP_LOADNIL,    /*	A B	R[A], R[A+1], ..., R[A+B] := nil		*/
-  OP_GETUPVAL,   /*	A B	R[A] := UpValue[B]				*/
-  OP_SETUPVAL,   /*	A B	UpValue[B] := R[A]				*/
+  OP_LOADTRUE,   /*	A	R[A] := true   */
+  OP_LOADNIL,    /*	A B	R[A], R[A+1], ..., R[A+B] := nil
+                  */
+  OP_GETUPVAL,   /*	A B	R[A] := UpValue[B]   */
+  OP_SETUPVAL,   /*	A B	UpValue[B] := R[A]   */
 
-  OP_GETTABUP, /*	A B C	R[A] := UpValue[B][K[C]:string]			*/
-  OP_GETTABLE, /*	A B C	R[A] := R[B][R[C]]				*/
+  OP_GETTABUP, /*	A B C	R[A] := UpValue[B][K[C]:string] */
+  OP_GETTABLE, /*	A B C	R[A] := R[B][R[C]] */
   OP_GETI,     /*	A B C	R[A] := R[B][C]					*/
-  OP_GETFIELD, /*	A B C	R[A] := R[B][K[C]:string]			*/
+  OP_GETFIELD, /*	A B C	R[A] := R[B][K[C]:string] */
 
-  OP_SETTABUP, /*	A B C	UpValue[A][K[B]:string] := RK(C)		*/
-  OP_SETTABLE, /*	A B C	R[A][R[B]] := RK(C)				*/
+  OP_SETTABUP, /*	A B C	UpValue[A][K[B]:string] := RK(C)
+                */
+  OP_SETTABLE, /*	A B C	R[A][R[B]] := RK(C) */
   OP_SETI,     /*	A B C	R[A][B] := RK(C)				*/
-  OP_SETFIELD, /*	A B C	R[A][K[B]:string] := RK(C)			*/
+  OP_SETFIELD, /*	A B C	R[A][K[B]:string] := RK(C) */
 
-  OP_NEWTABLE, /*	A B C k	R[A] := {}					*/
+  OP_NEWTABLE, /*	A B C k	R[A] := {} */
 
   OP_SELF, /*	A B C	R[A+1] := R[B]; R[A] := R[B][RK(C):string]	*/
 
@@ -258,32 +270,40 @@ typedef enum {
   OP_GEI, /*	A sB k	if ((R[A] >= sB) ~= k) then pc++		*/
 
   OP_TEST,    /*	A k	if (not R[A] == k) then pc++			*/
-  OP_TESTSET, /*	A B k	if (not R[B] == k) then pc++ else R[A] := R[B] (*) */
+  OP_TESTSET, /*	A B k	if (not R[B] == k) then pc++ else R[A] := R[B]
+                 (*) */
 
   OP_CALL,     /*	A B C	R[A], ... ,R[A+C-2] := R[A](R[A+1], ... ,R[A+B-1]) */
-  OP_TAILCALL, /*	A B C k	return R[A](R[A+1], ... ,R[A+B-1])		*/
+  OP_TAILCALL, /*	A B C k	return R[A](R[A+1], ... ,R[A+B-1])
+                */
 
   OP_RETURN,  /*	A B C k	return R[A], ... ,R[A+B-2]	(see note)	*/
-  OP_RETURN0, /*		return						*/
-  OP_RETURN1, /*	A	return R[A]					*/
+  OP_RETURN0, /*		return */
+  OP_RETURN1, /*	A	return R[A] */
 
-  OP_FORLOOP, /*	A Bx	update counters; if loop continues then pc-=Bx; */
+  OP_FORLOOP, /*	A Bx	update counters; if loop continues then pc-=Bx;
+               */
   OP_FORPREP, /*	A Bx	<check values and prepare counters>;
                            if not to run then pc+=Bx+1;			*/
 
-  OP_TFORPREP, /*	A Bx	create upvalue for R[A + 3]; pc+=Bx		*/
-  OP_TFORCALL, /*	A C	R[A+4], ... ,R[A+3+C] := R[A](R[A+1], R[A+2]);	*/
-  OP_TFORLOOP, /*	A Bx	if R[A+2] ~= nil then { R[A]=R[A+2]; pc -= Bx }	*/
+  OP_TFORPREP, /*	A Bx	create upvalue for R[A + 3]; pc+=Bx
+                */
+  OP_TFORCALL, /*	A C	R[A+4], ... ,R[A+3+C] := R[A](R[A+1], R[A+2]);
+                */
+  OP_TFORLOOP, /*	A Bx	if R[A+2] ~= nil then { R[A]=R[A+2]; pc -= Bx }
+                */
 
-  OP_SETLIST, /*	A B C k	R[A][C+i] := R[A+i], 1 <= i <= B		*/
+  OP_SETLIST, /*	A B C k	R[A][C+i] := R[A+i], 1 <= i <= B
+               */
 
-  OP_CLOSURE, /*	A Bx	R[A] := closure(KPROTO[Bx])			*/
+  OP_CLOSURE, /*	A Bx	R[A] := closure(KPROTO[Bx]) */
 
   OP_VARARG, /*	A C	R[A], R[A+1], ..., R[A+C-2] = vararg		*/
 
   OP_VARARGPREP, /*A	(adjust vararg parameters)			*/
 
-  OP_EXTRAARG /*	Ax	extra (larger) argument for previous opcode	*/
+  OP_EXTRAARG /*	Ax	extra (larger) argument for previous opcode
+               */
 } OpCode;
 
 #define NUM_OPCODES ((int)(OP_EXTRAARG) + 1)
@@ -361,12 +381,15 @@ LUAI_DDEC(const lu_byte luaP_opmodes[NUM_OPCODES];)
 #define testMMMode(m) (luaP_opmodes[m] & (1 << 7))
 
 /* "out top" (set top for next instruction) */
-#define isOT(i) ((testOTMode(GET_OPCODE(i)) && GETARG_C(i) == 0) || GET_OPCODE(i) == OP_TAILCALL)
+#define isOT(i)                                                                \
+  ((testOTMode(GET_OPCODE(i)) && GETARG_C(i) == 0) ||                          \
+   GET_OPCODE(i) == OP_TAILCALL)
 
 /* "in top" (uses top from previous instruction) */
 #define isIT(i) (testITMode(GET_OPCODE(i)) && GETARG_B(i) == 0)
 
-#define opmode(mm, ot, it, t, a, m) (((mm) << 7) | ((ot) << 6) | ((it) << 5) | ((t) << 4) | ((a) << 3) | (m))
+#define opmode(mm, ot, it, t, a, m)                                            \
+  (((mm) << 7) | ((ot) << 6) | ((it) << 5) | ((t) << 4) | ((a) << 3) | (m))
 
 /* number of list items to accumulate before a SETLIST instruction */
 #define LFIELDS_PER_FLUSH 50

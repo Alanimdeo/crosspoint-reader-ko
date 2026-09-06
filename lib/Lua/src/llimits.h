@@ -36,7 +36,8 @@ typedef signed char ls_byte;
 #define MAX_SIZET ((size_t)(~(size_t)0))
 
 /* maximum size visible for Lua (must be representable in a lua_Integer) */
-#define MAX_SIZE (sizeof(size_t) < sizeof(lua_Integer) ? MAX_SIZET : (size_t)(LUA_MAXINTEGER))
+#define MAX_SIZE                                                               \
+  (sizeof(size_t) < sizeof(lua_Integer) ? MAX_SIZET : (size_t)(LUA_MAXINTEGER))
 
 #define MAX_LUMEM ((lu_mem)(~(lu_mem)0))
 
@@ -64,7 +65,8 @@ typedef signed char ls_byte;
 ** value. (In strict ISO C this may cause undefined behavior, but no
 ** actual machine seems to bother.)
 */
-#if !defined(LUA_USE_C89) && defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+#if !defined(LUA_USE_C89) && defined(__STDC_VERSION__) &&                      \
+    __STDC_VERSION__ >= 199901L
 #include <stdint.h>
 #if defined(UINTPTR_MAX) /* even in C99 this type is optional */
 #define L_P2I uintptr_t
@@ -118,14 +120,14 @@ typedef LUAI_UACINT l_uacInt;
 #define cast(t, exp) ((t)(exp))
 
 #define cast_void(i) cast(void, (i))
-#define cast_voidp(i) cast(void*, (i))
+#define cast_voidp(i) cast(void *, (i))
 #define cast_num(i) cast(lua_Number, (i))
 #define cast_int(i) cast(int, (i))
 #define cast_uint(i) cast(unsigned int, (i))
 #define cast_byte(i) cast(lu_byte, (i))
 #define cast_uchar(i) cast(unsigned char, (i))
 #define cast_char(i) cast(char, (i))
-#define cast_charp(i) cast(char*, (i))
+#define cast_charp(i) cast(char *, (i))
 #define cast_sizet(i) cast(size_t, (i))
 
 /* cast a signed lua_Integer to lua_Unsigned */
@@ -241,10 +243,10 @@ typedef l_uint32 Instruction;
 ** function can yield.
 */
 #if !defined(luai_threadyield)
-#define luai_threadyield(L) \
-  {                         \
-    lua_unlock(L);          \
-    lua_lock(L);            \
+#define luai_threadyield(L)                                                    \
+  {                                                                            \
+    lua_unlock(L);                                                             \
+    lua_lock(L);                                                               \
   }
 #endif
 
@@ -302,17 +304,19 @@ typedef l_uint32 Instruction;
 ** (as the result 'm' of 'fmod' has the same sign of 'a').
 */
 #if !defined(luai_nummod)
-#define luai_nummod(L, a, b, m)                                 \
-  {                                                             \
-    (void)L;                                                    \
-    (m) = l_mathop(fmod)(a, b);                                 \
-    if (((m) > 0) ? (b) < 0 : ((m) < 0 && (b) > 0)) (m) += (b); \
+#define luai_nummod(L, a, b, m)                                                \
+  {                                                                            \
+    (void)L;                                                                   \
+    (m) = l_mathop(fmod)(a, b);                                                \
+    if (((m) > 0) ? (b) < 0 : ((m) < 0 && (b) > 0))                            \
+      (m) += (b);                                                              \
   }
 #endif
 
 /* exponentiation */
 #if !defined(luai_numpow)
-#define luai_numpow(L, a, b) ((void)L, (b == 2) ? (a) * (a) : l_mathop(pow)(a, b))
+#define luai_numpow(L, a, b)                                                   \
+  ((void)L, (b == 2) ? (a) * (a) : l_mathop(pow)(a, b))
 #endif
 
 /* the others are quite standard operations */
@@ -336,25 +340,25 @@ typedef l_uint32 Instruction;
 #define condmovestack(L, pre, pos) ((void)0)
 #else
 /* realloc stack keeping its size */
-#define condmovestack(L, pre, pos)  \
-  {                                 \
-    int sz_ = stacksize(L);         \
-    pre;                            \
-    luaD_reallocstack((L), sz_, 0); \
-    pos;                            \
+#define condmovestack(L, pre, pos)                                             \
+  {                                                                            \
+    int sz_ = stacksize(L);                                                    \
+    pre;                                                                       \
+    luaD_reallocstack((L), sz_, 0);                                            \
+    pos;                                                                       \
   }
 #endif
 
 #if !defined(HARDMEMTESTS)
 #define condchangemem(L, pre, pos) ((void)0)
 #else
-#define condchangemem(L, pre, pos) \
-  {                                \
-    if (gcrunning(G(L))) {         \
-      pre;                         \
-      luaC_fullgc(L, 0);           \
-      pos;                         \
-    }                              \
+#define condchangemem(L, pre, pos)                                             \
+  {                                                                            \
+    if (gcrunning(G(L))) {                                                     \
+      pre;                                                                     \
+      luaC_fullgc(L, 0);                                                       \
+      pos;                                                                     \
+    }                                                                          \
   }
 #endif
 

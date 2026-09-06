@@ -21,49 +21,50 @@
 #undef PI
 #define PI (l_mathop(3.141592653589793238462643383279502884))
 
-static int math_abs(lua_State* L) {
+static int math_abs(lua_State *L) {
   if (lua_isinteger(L, 1)) {
     lua_Integer n = lua_tointeger(L, 1);
-    if (n < 0) n = (lua_Integer)(0u - (lua_Unsigned)n);
+    if (n < 0)
+      n = (lua_Integer)(0u - (lua_Unsigned)n);
     lua_pushinteger(L, n);
   } else
     lua_pushnumber(L, l_mathop(fabs)(luaL_checknumber(L, 1)));
   return 1;
 }
 
-static int math_sin(lua_State* L) {
+static int math_sin(lua_State *L) {
   lua_pushnumber(L, l_mathop(sin)(luaL_checknumber(L, 1)));
   return 1;
 }
 
-static int math_cos(lua_State* L) {
+static int math_cos(lua_State *L) {
   lua_pushnumber(L, l_mathop(cos)(luaL_checknumber(L, 1)));
   return 1;
 }
 
-static int math_tan(lua_State* L) {
+static int math_tan(lua_State *L) {
   lua_pushnumber(L, l_mathop(tan)(luaL_checknumber(L, 1)));
   return 1;
 }
 
-static int math_asin(lua_State* L) {
+static int math_asin(lua_State *L) {
   lua_pushnumber(L, l_mathop(asin)(luaL_checknumber(L, 1)));
   return 1;
 }
 
-static int math_acos(lua_State* L) {
+static int math_acos(lua_State *L) {
   lua_pushnumber(L, l_mathop(acos)(luaL_checknumber(L, 1)));
   return 1;
 }
 
-static int math_atan(lua_State* L) {
+static int math_atan(lua_State *L) {
   lua_Number y = luaL_checknumber(L, 1);
   lua_Number x = luaL_optnumber(L, 2, 1);
   lua_pushnumber(L, l_mathop(atan2)(y, x));
   return 1;
 }
 
-static int math_toint(lua_State* L) {
+static int math_toint(lua_State *L) {
   int valid;
   lua_Integer n = lua_tointegerx(L, 1, &valid);
   if (l_likely(valid))
@@ -75,7 +76,7 @@ static int math_toint(lua_State* L) {
   return 1;
 }
 
-static void pushnumint(lua_State* L, lua_Number d) {
+static void pushnumint(lua_State *L, lua_Number d) {
   lua_Integer n;
   if (lua_numbertointeger(d, &n)) /* does 'd' fit in an integer? */
     lua_pushinteger(L, n);        /* result is integer */
@@ -83,7 +84,7 @@ static void pushnumint(lua_State* L, lua_Number d) {
     lua_pushnumber(L, d); /* result is float */
 }
 
-static int math_floor(lua_State* L) {
+static int math_floor(lua_State *L) {
   if (lua_isinteger(L, 1))
     lua_settop(L, 1); /* integer is its own floor */
   else {
@@ -93,7 +94,7 @@ static int math_floor(lua_State* L) {
   return 1;
 }
 
-static int math_ceil(lua_State* L) {
+static int math_ceil(lua_State *L) {
   if (lua_isinteger(L, 1))
     lua_settop(L, 1); /* integer is its own ceil */
   else {
@@ -103,7 +104,7 @@ static int math_ceil(lua_State* L) {
   return 1;
 }
 
-static int math_fmod(lua_State* L) {
+static int math_fmod(lua_State *L) {
   if (lua_isinteger(L, 1) && lua_isinteger(L, 2)) {
     lua_Integer d = lua_tointeger(L, 2);
     if ((lua_Unsigned)d + 1u <= 1u) { /* special cases: -1 or 0 */
@@ -112,7 +113,8 @@ static int math_fmod(lua_State* L) {
     } else
       lua_pushinteger(L, lua_tointeger(L, 1) % d);
   } else
-    lua_pushnumber(L, l_mathop(fmod)(luaL_checknumber(L, 1), luaL_checknumber(L, 2)));
+    lua_pushnumber(
+        L, l_mathop(fmod)(luaL_checknumber(L, 1), luaL_checknumber(L, 2)));
   return 1;
 }
 
@@ -121,7 +123,7 @@ static int math_fmod(lua_State* L) {
 ** (which is not compatible with 'float*') when lua_Number is not
 ** 'double'.
 */
-static int math_modf(lua_State* L) {
+static int math_modf(lua_State *L) {
   if (lua_isinteger(L, 1)) {
     lua_settop(L, 1);     /* number is its own integer part */
     lua_pushnumber(L, 0); /* no fractional part */
@@ -136,19 +138,19 @@ static int math_modf(lua_State* L) {
   return 2;
 }
 
-static int math_sqrt(lua_State* L) {
+static int math_sqrt(lua_State *L) {
   lua_pushnumber(L, l_mathop(sqrt)(luaL_checknumber(L, 1)));
   return 1;
 }
 
-static int math_ult(lua_State* L) {
+static int math_ult(lua_State *L) {
   lua_Integer a = luaL_checkinteger(L, 1);
   lua_Integer b = luaL_checkinteger(L, 2);
   lua_pushboolean(L, (lua_Unsigned)a < (lua_Unsigned)b);
   return 1;
 }
 
-static int math_log(lua_State* L) {
+static int math_log(lua_State *L) {
   lua_Number x = luaL_checknumber(L, 1);
   lua_Number res;
   if (lua_isnoneornil(L, 2))
@@ -169,46 +171,48 @@ static int math_log(lua_State* L) {
   return 1;
 }
 
-static int math_exp(lua_State* L) {
+static int math_exp(lua_State *L) {
   lua_pushnumber(L, l_mathop(exp)(luaL_checknumber(L, 1)));
   return 1;
 }
 
-static int math_deg(lua_State* L) {
+static int math_deg(lua_State *L) {
   lua_pushnumber(L, luaL_checknumber(L, 1) * (l_mathop(180.0) / PI));
   return 1;
 }
 
-static int math_rad(lua_State* L) {
+static int math_rad(lua_State *L) {
   lua_pushnumber(L, luaL_checknumber(L, 1) * (PI / l_mathop(180.0)));
   return 1;
 }
 
-static int math_min(lua_State* L) {
+static int math_min(lua_State *L) {
   int n = lua_gettop(L); /* number of arguments */
   int imin = 1;          /* index of current minimum value */
   int i;
   luaL_argcheck(L, n >= 1, 1, "value expected");
   for (i = 2; i <= n; i++) {
-    if (lua_compare(L, i, imin, LUA_OPLT)) imin = i;
+    if (lua_compare(L, i, imin, LUA_OPLT))
+      imin = i;
   }
   lua_pushvalue(L, imin);
   return 1;
 }
 
-static int math_max(lua_State* L) {
+static int math_max(lua_State *L) {
   int n = lua_gettop(L); /* number of arguments */
   int imax = 1;          /* index of current maximum value */
   int i;
   luaL_argcheck(L, n >= 1, 1, "value expected");
   for (i = 2; i <= n; i++) {
-    if (lua_compare(L, imax, i, LUA_OPLT)) imax = i;
+    if (lua_compare(L, imax, i, LUA_OPLT))
+      imax = i;
   }
   lua_pushvalue(L, imax);
   return 1;
 }
 
-static int math_type(lua_State* L) {
+static int math_type(lua_State *L) {
   if (lua_type(L, 1) == LUA_TNUMBER)
     lua_pushstring(L, (lua_isinteger(L, 1)) ? "integer" : "float");
   else {
@@ -273,9 +277,11 @@ static int math_type(lua_State* L) {
 #define trim64(x) ((x) & 0xffffffffffffffffu)
 
 /* rotate left 'x' by 'n' bits */
-static Rand64 rotl(Rand64 x, int n) { return (x << n) | (trim64(x) >> (64 - n)); }
+static Rand64 rotl(Rand64 x, int n) {
+  return (x << n) | (trim64(x) >> (64 - n));
+}
 
-static Rand64 nextrand(Rand64* state) {
+static Rand64 nextrand(Rand64 *state) {
   Rand64 state0 = state[0];
   Rand64 state1 = state[1];
   Rand64 state2 = state[2] ^ state0;
@@ -302,7 +308,9 @@ static Rand64 nextrand(Rand64* state) {
 /* to scale to [0, 1), multiply by scaleFIG = 2^(-FIGS) */
 #define scaleFIG (l_mathop(0.5) / ((Rand64)1 << (FIGS - 1)))
 
-static lua_Number I2d(Rand64 x) { return (lua_Number)(trim64(x) >> shift64_FIG) * scaleFIG; }
+static lua_Number I2d(Rand64 x) {
+  return (lua_Number)(trim64(x) >> shift64_FIG) * scaleFIG;
+}
 
 /* convert a 'Rand64' to a 'lua_Unsigned' */
 #define I2UInt(x) ((lua_Unsigned)trim64(x))
@@ -355,7 +363,7 @@ static Rand64 Ishl(Rand64 i, int n) {
 }
 
 /* i1 ^= i2 */
-static void Ixor(Rand64* i1, Rand64 i2) {
+static void Ixor(Rand64 *i1, Rand64 i2) {
   i1->h ^= i2.h;
   i1->l ^= i2.l;
 }
@@ -369,28 +377,34 @@ static Rand64 Iadd(Rand64 i1, Rand64 i2) {
 }
 
 /* return i * 5 */
-static Rand64 times5(Rand64 i) { return Iadd(Ishl(i, 2), i); /* i * 5 == (i << 2) + i */ }
+static Rand64 times5(Rand64 i) {
+  return Iadd(Ishl(i, 2), i); /* i * 5 == (i << 2) + i */
+}
 
 /* return i * 9 */
-static Rand64 times9(Rand64 i) { return Iadd(Ishl(i, 3), i); /* i * 9 == (i << 3) + i */ }
+static Rand64 times9(Rand64 i) {
+  return Iadd(Ishl(i, 3), i); /* i * 9 == (i << 3) + i */
+}
 
 /* return 'i' rotated left 'n' bits */
 static Rand64 rotl(Rand64 i, int n) {
   lua_assert(n > 0 && n < 32);
-  return packI((i.h << n) | (trim32(i.l) >> (32 - n)), (trim32(i.h) >> (32 - n)) | (i.l << n));
+  return packI((i.h << n) | (trim32(i.l) >> (32 - n)),
+               (trim32(i.h) >> (32 - n)) | (i.l << n));
 }
 
 /* for offsets larger than 32, rotate right by 64 - offset */
 static Rand64 rotl1(Rand64 i, int n) {
   lua_assert(n > 32 && n < 64);
   n = 64 - n;
-  return packI((trim32(i.h) >> n) | (i.l << (32 - n)), (i.h << (32 - n)) | (trim32(i.l) >> n));
+  return packI((trim32(i.h) >> n) | (i.l << (32 - n)),
+               (i.h << (32 - n)) | (trim32(i.l) >> n));
 }
 
 /*
 ** implementation of 'xoshiro256**' algorithm on 'Rand64' values
 */
-static Rand64 nextrand(Rand64* state) {
+static Rand64 nextrand(Rand64 *state) {
   Rand64 res = times9(rotl(times5(state[1]), 7));
   Rand64 t = Ishl(state[1], 17);
   Ixor(&state[2], state[0]);
@@ -428,7 +442,8 @@ static lua_Number I2d(Rand64 x) {
 /* must take care to not shift stuff by more than 31 slots */
 
 /* 2^(-FIGS) = 1.0 / 2^30 / 2^3 / 2^(FIGS-33) */
-#define scaleFIG (l_mathop(1.0) / (UONE << 30) / l_mathop(8.0) / (UONE << (FIGS - 33)))
+#define scaleFIG                                                               \
+  (l_mathop(1.0) / (UONE << 30) / l_mathop(8.0) / (UONE << (FIGS - 33)))
 
 /*
 ** use FIGS - 32 bits from lower half, throwing out the other
@@ -450,10 +465,14 @@ static lua_Number I2d(Rand64 x) {
 #endif
 
 /* convert a 'Rand64' to a 'lua_Unsigned' */
-static lua_Unsigned I2UInt(Rand64 x) { return (((lua_Unsigned)trim32(x.h) << 31) << 1) | (lua_Unsigned)trim32(x.l); }
+static lua_Unsigned I2UInt(Rand64 x) {
+  return (((lua_Unsigned)trim32(x.h) << 31) << 1) | (lua_Unsigned)trim32(x.l);
+}
 
 /* convert a 'lua_Unsigned' to a 'Rand64' */
-static Rand64 Int2I(lua_Unsigned n) { return packI((lu_int32)((n >> 31) >> 1), (lu_int32)n); }
+static Rand64 Int2I(lua_Unsigned n) {
+  return packI((lu_int32)((n >> 31) >> 1), (lu_int32)n);
+}
 
 #endif /* } */
 
@@ -474,7 +493,7 @@ typedef struct {
 ** is inside [0, n], we are done. Otherwise, we try with another 'ran',
 ** until we have a result inside the interval.
 */
-static lua_Unsigned project(lua_Unsigned ran, lua_Unsigned n, RanState* state) {
+static lua_Unsigned project(lua_Unsigned ran, lua_Unsigned n, RanState *state) {
   if ((n & (n + 1)) == 0) /* is 'n + 1' a power of 2? */
     return ran & n;       /* no bias */
   else {
@@ -497,32 +516,32 @@ static lua_Unsigned project(lua_Unsigned ran, lua_Unsigned n, RanState* state) {
   }
 }
 
-static int math_random(lua_State* L) {
+static int math_random(lua_State *L) {
   lua_Integer low, up;
   lua_Unsigned p;
-  RanState* state = (RanState*)lua_touserdata(L, lua_upvalueindex(1));
+  RanState *state = (RanState *)lua_touserdata(L, lua_upvalueindex(1));
   Rand64 rv = nextrand(state->s); /* next pseudo-random value */
   switch (lua_gettop(L)) {        /* check number of arguments */
-    case 0: {                     /* no arguments */
-      lua_pushnumber(L, I2d(rv)); /* float between 0 and 1 */
+  case 0: {                       /* no arguments */
+    lua_pushnumber(L, I2d(rv));   /* float between 0 and 1 */
+    return 1;
+  }
+  case 1: { /* only upper limit */
+    low = 1;
+    up = luaL_checkinteger(L, 1);
+    if (up == 0) {                    /* single 0 as argument? */
+      lua_pushinteger(L, I2UInt(rv)); /* full random integer */
       return 1;
     }
-    case 1: { /* only upper limit */
-      low = 1;
-      up = luaL_checkinteger(L, 1);
-      if (up == 0) {                    /* single 0 as argument? */
-        lua_pushinteger(L, I2UInt(rv)); /* full random integer */
-        return 1;
-      }
-      break;
-    }
-    case 2: { /* lower and upper limits */
-      low = luaL_checkinteger(L, 1);
-      up = luaL_checkinteger(L, 2);
-      break;
-    }
-    default:
-      return luaL_error(L, "wrong number of arguments");
+    break;
+  }
+  case 2: { /* lower and upper limits */
+    low = luaL_checkinteger(L, 1);
+    up = luaL_checkinteger(L, 2);
+    break;
+  }
+  default:
+    return luaL_error(L, "wrong number of arguments");
   }
   /* random integer in the interval [low, up] */
   luaL_argcheck(L, low <= up, 1, "interval is empty");
@@ -532,13 +551,15 @@ static int math_random(lua_State* L) {
   return 1;
 }
 
-static void setseed(lua_State* L, Rand64* state, lua_Unsigned n1, lua_Unsigned n2) {
+static void setseed(lua_State *L, Rand64 *state, lua_Unsigned n1,
+                    lua_Unsigned n2) {
   int i;
   state[0] = Int2I(n1);
   state[1] = Int2I(0xff); /* avoid a zero state */
   state[2] = Int2I(n2);
   state[3] = Int2I(0);
-  for (i = 0; i < 16; i++) nextrand(state); /* discard initial values to "spread" seed */
+  for (i = 0; i < 16; i++)
+    nextrand(state); /* discard initial values to "spread" seed */
   lua_pushinteger(L, n1);
   lua_pushinteger(L, n2);
 }
@@ -548,14 +569,14 @@ static void setseed(lua_State* L, Rand64* state, lua_Unsigned n1, lua_Unsigned n
 ** and the address of 'L' (in case the machine does address space layout
 ** randomization).
 */
-static void randseed(lua_State* L, RanState* state) {
+static void randseed(lua_State *L, RanState *state) {
   lua_Unsigned seed1 = (lua_Unsigned)time(NULL);
   lua_Unsigned seed2 = (lua_Unsigned)(size_t)L;
   setseed(L, state->s, seed1, seed2);
 }
 
-static int math_randomseed(lua_State* L) {
-  RanState* state = (RanState*)lua_touserdata(L, lua_upvalueindex(1));
+static int math_randomseed(lua_State *L) {
+  RanState *state = (RanState *)lua_touserdata(L, lua_upvalueindex(1));
   if (lua_isnone(L, 1)) {
     randseed(L, state);
   } else {
@@ -566,13 +587,14 @@ static int math_randomseed(lua_State* L) {
   return 2; /* return seeds */
 }
 
-static const luaL_Reg randfuncs[] = {{"random", math_random}, {"randomseed", math_randomseed}, {NULL, NULL}};
+static const luaL_Reg randfuncs[] = {
+    {"random", math_random}, {"randomseed", math_randomseed}, {NULL, NULL}};
 
 /*
 ** Register the random functions and initialize their state.
 */
-static void setrandfunc(lua_State* L) {
-  RanState* state = (RanState*)lua_newuserdatauv(L, sizeof(RanState), 0);
+static void setrandfunc(lua_State *L) {
+  RanState *state = (RanState *)lua_newuserdatauv(L, sizeof(RanState), 0);
   randseed(L, state); /* initialize with a "random" seed */
   lua_pop(L, 2);      /* remove pushed seeds */
   luaL_setfuncs(L, randfuncs, 1);
@@ -587,43 +609,43 @@ static void setrandfunc(lua_State* L) {
 */
 #if defined(LUA_COMPAT_MATHLIB)
 
-static int math_cosh(lua_State* L) {
+static int math_cosh(lua_State *L) {
   lua_pushnumber(L, l_mathop(cosh)(luaL_checknumber(L, 1)));
   return 1;
 }
 
-static int math_sinh(lua_State* L) {
+static int math_sinh(lua_State *L) {
   lua_pushnumber(L, l_mathop(sinh)(luaL_checknumber(L, 1)));
   return 1;
 }
 
-static int math_tanh(lua_State* L) {
+static int math_tanh(lua_State *L) {
   lua_pushnumber(L, l_mathop(tanh)(luaL_checknumber(L, 1)));
   return 1;
 }
 
-static int math_pow(lua_State* L) {
+static int math_pow(lua_State *L) {
   lua_Number x = luaL_checknumber(L, 1);
   lua_Number y = luaL_checknumber(L, 2);
   lua_pushnumber(L, l_mathop(pow)(x, y));
   return 1;
 }
 
-static int math_frexp(lua_State* L) {
+static int math_frexp(lua_State *L) {
   int e;
   lua_pushnumber(L, l_mathop(frexp)(luaL_checknumber(L, 1), &e));
   lua_pushinteger(L, e);
   return 2;
 }
 
-static int math_ldexp(lua_State* L) {
+static int math_ldexp(lua_State *L) {
   lua_Number x = luaL_checknumber(L, 1);
   int ep = (int)luaL_checkinteger(L, 2);
   lua_pushnumber(L, l_mathop(ldexp)(x, ep));
   return 1;
 }
 
-static int math_log10(lua_State* L) {
+static int math_log10(lua_State *L) {
   lua_pushnumber(L, l_mathop(log10)(luaL_checknumber(L, 1)));
   return 1;
 }
@@ -674,7 +696,7 @@ static const luaL_Reg mathlib[] = {{"abs", math_abs},
 /*
 ** Open math library
 */
-LUAMOD_API int luaopen_math(lua_State* L) {
+LUAMOD_API int luaopen_math(lua_State *L) {
   luaL_newlib(L, mathlib);
   lua_pushnumber(L, PI);
   lua_setfield(L, -2, "pi");
