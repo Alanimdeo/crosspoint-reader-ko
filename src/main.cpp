@@ -13,10 +13,12 @@
 #include <HalTiltSensor.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <PowerManager.h>
 #include <SPI.h>
 #include <SdFontFamily.h>
 #include <WiFi.h>
 #include <builtinFonts/all.h>
+#include <esp_sleep.h>
 
 #include <cstring>
 
@@ -35,6 +37,7 @@
 #include "images/LoadingIcon.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
+#include "util/WriteDebugLog.h"
 
 GfxRenderer renderer(display);
 MappedInputManager mappedInputManager(gpio, renderer);
@@ -228,6 +231,11 @@ enum class BootResume : uint8_t {
 // startDeepSleep() does not return, so a set latch only ends at the wakeup reset.
 static bool deepSleepInProgress = false;
 
+// Set when the boot was a clock-sleep timer wake: the device woke only to
+// re-render the clock sleep screen, so after setup the loop should re-enter
+// deep sleep instead of landing on Home/reader.
+static bool timerWakeReentry = false;
+
 void silentRestart() {
   if (deepSleepInProgress) return;  // sleeping supersedes the heap-defrag reboot
   silentRebootTarget = SILENT_REBOOT_TARGET_HOME;
@@ -284,7 +292,7 @@ static bool loadSleepFrameBuffer() {
 }
 
 // Enter deep sleep mode
-void enterDeepSleep(bool fromTimeout = false) {
+void enterDeepSleep(bool fromTimeout = false, bool quietRepaint = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
 
@@ -299,7 +307,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
   // a WiFi activity would otherwise silentRestart() here and reboot instead.
   deepSleepInProgress = true;
-  activityManager.goToSleep(fromTimeout);
+  activityManager.goToSleep(fromTimeout, quietRepaint);
 
   if (isQuickResumeSleep) {
     saveSleepFrameBuffer();
@@ -316,7 +324,43 @@ void enterDeepSleep(bool fromTimeout = false) {
   display.deepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
-  powerManager.startDeepSleep(gpio);
+  // Clock sleep screen: wake near the next minute boundary so the displayed
+  // minute is freshly re-rendered each time. RTC second is read AFTER the
+  // sleep screen has already been painted (goToSleep above), so the wait
+  // below reflects the moment the display settled — the wake lands just after
+  // the next minute:00 mark.
+  const bool clockSleep = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK;
+
+  if (clockSleep) {
+    uint16_t y = 0;
+    uint8_t mo = 0, d = 0, h = 0, mi = 0, s = 0, wd = 0;
+    uint32_t waitMs = 60000;
+    if (halClock.getDateTime(y, mo, d, h, mi, s, wd)) {
+      // ms within the current minute, measured right after the render settled.
+      const uint32_t msIntoMin = static_cast<uint32_t>(s) * 1000U + (millis() % 1000U);
+      waitMs = 60000U - msIntoMin;
+      if (waitMs < 1000) waitMs = 60000U;  // safety: don't arm a sub-second wake
+    }
+
+    // X3 path: compose the deep-sleep sequence manually so we can (a) arm the
+    // timer wakeup AFTER the power-button GPIO wake (additive sources, but arm
+    // the timer last regardless) and (b) record the timer-arm error to
+    // /debug.log — this device has no serial console.
+    char dbgLine[64];
+    snprintf(dbgLine, sizeof(dbgLine), "sleep timerWakeMs=%lu", static_cast<unsigned long>(waitMs));
+    writeDebugLog(dbgLine);
+    freeink::PowerManager::waitForPowerButtonRelease();
+    freeink::PowerManager::armPowerButtonWakeup();
+    const esp_err_t timerErr = esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(waitMs) * 1000ULL);
+    LOG_DBG("MAIN", "Timer wake armed in %lu ms: esp_err=%d", static_cast<unsigned long>(waitMs),
+            static_cast<int>(timerErr));
+    snprintf(dbgLine, sizeof(dbgLine), "timer arm err=%d", static_cast<int>(timerErr));
+    writeDebugLog(dbgLine);
+    freeink::PowerManager::deepSleep();
+  } else {
+    writeDebugLog("sleep timerWakeMs=0");
+    powerManager.startDeepSleep(gpio);
+  }
 }
 
 void setupDisplayAndFonts(bool seamless = false) {
@@ -433,6 +477,26 @@ void setup() {
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
   const auto wakeupReason = gpio.getWakeupReason();
+  const auto wakeupCause = esp_sleep_get_wakeup_cause();
+  const auto resetReason = esp_reset_reason();
+  LOG_DBG("MAIN", "Wake: reason=%d cause=%d reset=%d", static_cast<int>(wakeupReason), static_cast<int>(wakeupCause),
+          static_cast<int>(resetReason));
+  {
+    char wl[64];
+    snprintf(wl, sizeof(wl), "wake reason=%d cause=%d reset=%d", static_cast<int>(wakeupReason),
+             static_cast<int>(wakeupCause), static_cast<int>(resetReason));
+    writeDebugLog(wl);
+  }
+  // Timer wake from the periodic clock sleep screen: re-render the clock and
+  // go straight back to deep sleep (no Home/reader, no splash). Some chips
+  // report the cause as ESP_SLEEP_WAKEUP_ALL when both button and timer are
+  // armed; treat any deep-sleep TIMER/ALL wake as a clock re-render.
+  const bool isTimerWake = (wakeupCause == ESP_SLEEP_WAKEUP_TIMER || wakeupCause == ESP_SLEEP_WAKEUP_ALL);
+  if (wakeupReason == HalGPIO::WakeupReason::Other && isTimerWake &&
+      SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK) {
+    LOG_DBG("MAIN", "Timer wake (clock sleep screen), going back to sleep");
+    timerWakeReentry = true;
+  }
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
       LOG_DBG("MAIN", "Verifying power button press duration");
@@ -484,7 +548,20 @@ void setup() {
                                                         : BootResume::Splash;
   bool allowFastInitialReaderRefresh = false;
 
-  setupDisplayAndFonts(resume != BootResume::Splash);
+  // A timer wake from the clock sleep screen must NOT request a panel resync:
+  // requestResync() promotes the next paint to a full image-clearing waveform,
+  // which is what flashes the whole display every minute. Treat it like a
+  // seamless boot so HalDisplay::begin(true) skips the resync entirely.
+  setupDisplayAndFonts((resume != BootResume::Splash) || timerWakeReentry);
+
+  if (timerWakeReentry) {
+    // Timer wake from the periodic clock sleep screen. Paint the clock sleep
+    // screen and go straight back to deep sleep — no boot splash, no Quick
+    // Resume, no Home/reader routing. `fromTimeout=false` keeps the sleep
+    // screen exactly on the user-selected CLOCK renderer.
+    LOG_DBG("MAIN", "Timer wake: repaint clock sleep screen, back to sleep");
+    enterDeepSleep(false, /*quietRepaint=*/true);
+  }
 
   switch (resume) {
     case BootResume::Silent:

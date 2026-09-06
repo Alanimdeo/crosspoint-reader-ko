@@ -1,0 +1,7 @@
+# Lua is vendored third-party C. Keep include directives in the upstream
+# (PUC-Rio) order — Lua's headers are mutually recursive (lstate.h <-> ltm.h)
+# and the cycle only resolves if ltm.h is included last in ltm.c. clang-format's
+# default SortIncludes would alphabetize them and break a clean build.
+SortIncludes:
+  Enabled:         false
+IncludeBlocks:    Preserve

@@ -3,6 +3,7 @@
 #include <Epub.h>
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -31,13 +32,17 @@ void SleepActivity::onEnter() {
     return renderLastScreenSleepScreen();
   }
 
-  // Show popup with reader orientation only when going to sleep from reader
-  if (APP_STATE.lastSleepFromReader) {
-    ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
-    GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
-    renderer.setOrientation(GfxRenderer::Orientation::Portrait);
-  } else {
-    GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
+  // Show popup with reader orientation only when going to sleep from reader.
+  // Timer-wake clock re-renders (quietRepaint) skip the popup entirely — the
+  // whole point is a single cheap refresh with no flash or message.
+  if (!quietRepaint) {
+    if (APP_STATE.lastSleepFromReader) {
+      ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
+      GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
+      renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+    } else {
+      GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
+    }
   }
 
   switch (SETTINGS.sleepScreen) {
@@ -53,6 +58,8 @@ void SleepActivity::onEnter() {
       } else {
         return renderCustomSleepScreen();
       }
+    case (CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK):
+      return renderClockSleepScreen();
     default:
       return renderDefaultSleepScreen();
   }
@@ -406,4 +413,204 @@ void SleepActivity::renderLastScreenSleepScreen() const {
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+}
+
+namespace {
+// 5x7 dot-matrix digits for the clock sleep screen (same glyph set as
+// cp.gfx.digits). Rows top->bottom, 5-bit mask, bit 4 = leftmost.
+constexpr uint8_t kClockDigitGlyphs[] = {
+    0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E,  // 0
+    0x02, 0x06, 0x0A, 0x02, 0x02, 0x02, 0x02,  // 1
+    0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F,  // 2
+    0x0E, 0x11, 0x01, 0x06, 0x01, 0x11, 0x0E,  // 3
+    0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02,  // 4
+    0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E,  // 5
+    0x0E, 0x11, 0x10, 0x1E, 0x11, 0x11, 0x0E,  // 6
+    0x1F, 0x11, 0x02, 0x04, 0x04, 0x04, 0x04,  // 7
+    0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E,  // 8
+    0x0E, 0x11, 0x11, 0x0F, 0x01, 0x11, 0x0E,  // 9
+    0x00, 0x02, 0x02, 0x00, 0x02, 0x02, 0x00,  // :
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // (space)
+};
+constexpr int kClockGlyphW = 5;
+constexpr int kClockGlyphH = 7;
+constexpr int kClockGlyphStep = kClockGlyphW + 1;  // +1 cell gap
+
+// Render a single dot-matrix character (digit or ':') at (x, y) with the
+// given pixel scale, anchored at the glyph's top-left corner.
+void drawClockGlyph(GfxRenderer& r, int x, int y, int charIdx, int scale, bool ink) {
+  for (int row = 0; row < kClockGlyphH; ++row) {
+    const uint8_t bits = kClockDigitGlyphs[charIdx * kClockGlyphH + row];
+    for (int col = 0; col < kClockGlyphW; ++col) {
+      if (bits & (1 << (4 - col))) {
+        r.fillRect(x + col * scale, y + row * scale, scale, scale, ink);
+      }
+    }
+  }
+}
+
+int clockGlyphIdx(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c == ':') return 10;
+  return 11;  // space for anything else
+}
+
+// --- civil-date <-> unix-seconds conversion (no RTC/libc dependency) -------
+// Howard Hinnant's algorithm; correct for years 0000..9999.
+int64_t daysFromCivil(int y, int m, int d) {
+  y -= m <= 2;
+  const int era = (y >= 0 ? y : y - 399) / 400;
+  const unsigned yoe = static_cast<unsigned>(y - era * 400);
+  const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+  const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return static_cast<int64_t>(era) * 146097 + static_cast<int64_t>(doe) - 719468;
+}
+
+void civilFromDays(int64_t days, int& y, int& m, int& d) {
+  days += 719468;
+  const int64_t era = (days >= 0 ? days : days - 146096) / 146097;
+  const unsigned doe = static_cast<unsigned>(days - era * 146097);
+  const unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+  const int64_t year0 = static_cast<int64_t>(yoe) + era * 400;
+  const unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+  const unsigned mp = (5 * doy + 2) / 153;
+  d = static_cast<int>(doy - (153 * mp + 2) / 5 + 1);
+  m = static_cast<int>(mp + (mp < 10 ? 3 : -9));
+  y = static_cast<int>(year0 + (m <= 2));
+}
+
+// Unix-day -> weekday, 0=Sunday.
+int weekdayFromDays(int64_t days) {
+  // 1970-01-01 was a Thursday (4). weekday = (days + 4) mod 7.
+  return static_cast<int>(((days % 7) + 7) % 7 + 4) % 7;
+}
+
+// Local (UTC-offset-applied) wall-clock fields.
+struct LocalDateTime {
+  int year, month, day, hour, minute, second, weekday;
+};
+
+LocalDateTime toLocal(const uint16_t year, const uint8_t month, const uint8_t day, const uint8_t hour,
+                      const uint8_t minute, const uint8_t second, const int32_t offsetQuarterHours) {
+  const int64_t days = daysFromCivil(year, month, day);
+  int64_t secs = days * 86400LL + hour * 3600LL + minute * 60LL + second;
+  secs += static_cast<int64_t>(offsetQuarterHours) * 15 * 60;  // apply zone offset
+
+  // Re-derive civil fields from the shifted epoch.
+  int64_t d = secs / 86400;
+  const int64_t rem = secs % 86400;
+  if (rem < 0) {
+    --d;
+  }
+  int64_t s = rem;
+  if (s < 0) s += 86400;
+  LocalDateTime out;
+  int y = 0, m = 0, dd = 0;
+  civilFromDays(d, y, m, dd);
+  out.year = y;
+  out.month = m;
+  out.day = dd;
+  out.hour = static_cast<int>(s / 3600);
+  out.minute = static_cast<int>((s / 60) % 60);
+  out.second = static_cast<int>(s % 60);
+  out.weekday = weekdayFromDays(d);
+  return out;
+}
+}  // namespace
+
+void SleepActivity::renderClockSleepScreen() const {
+  const auto pageWidth = renderer.getScreenWidth();
+  const auto pageHeight = renderer.getScreenHeight();
+
+  if (!quietRepaint) {
+    renderer.clearScreen();
+  }
+
+  uint16_t year = 0;
+  uint8_t month = 0, day = 0, hour = 0, minute = 0, second = 0, weekday = 0;
+  const bool haveDateTime = halClock.getDateTime(year, month, day, hour, minute, second, weekday);
+
+  if (!haveDateTime) {
+    // Fall back to a simple message when the RTC is absent/unreadable.
+    renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2, "No RTC");
+    renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+    return;
+  }
+
+  // Apply the reader's clock-zone offset (SETTINGS.clockUtcOffsetQ: biased
+  // quarter-hours, 48 = UTC+0) so the sleep clock matches the status bar.
+  const int32_t offsetQ = static_cast<int32_t>(SETTINGS.clockUtcOffsetQ) - 48;
+  const LocalDateTime lt = toLocal(year, month, day, hour, minute, second, offsetQ);
+
+  // Two big lines: HH on top, MM below, separated by a rule. The scale is
+  // chosen so the whole block (two digit lines + rule) fits vertically with
+  // room for the date below; width then follows from that scale.
+  char hourBuf[3], minBuf[3];
+  snprintf(hourBuf, sizeof(hourBuf), "%02d", lt.hour);
+  snprintf(minBuf, sizeof(minBuf), "%02d", lt.minute);
+  // 2 glyphs = 2*kClockGlyphStep - 1 cells (incl. one intra-pair gap).
+  const int lineCells = 2 * kClockGlyphStep - 1;
+
+  // Vertical first: two 7-row digit lines + 1-row rule + one cell of gap
+  // above/below the rule must not exceed ~60% of the screen height, leaving
+  // room for the date line underneath.
+  const int scaleByHeight = static_cast<int>(pageHeight * 0.60f) / (2 * kClockGlyphH + 3);
+  // Width is bounded by 80% so even huge panels don't overflow.
+  const int scaleByWidth = static_cast<int>(pageWidth * 0.8f) / lineCells;
+  int scale = std::min(scaleByHeight, scaleByWidth);
+  if (scale < 2) scale = 2;
+  const int lineW = lineCells * scale;
+  const int xLine = (pageWidth - lineW) / 2;
+  const int glyphH = kClockGlyphH * scale;
+
+  // Vertically center the two lines + separator rule as a block (slightly
+  // above center so the date has room below), but never off-screen. The rule
+  // sits a bit lower than the exact midpoint, away from the hour digits.
+  const int gapPx = scale;  // gap between a digit line and the rule
+  // blockH = hour digits + 2-cell gap + rule + 1-cell gap + minute digits.
+  const int blockH = glyphH + gapPx * 2 + scale + gapPx + glyphH;
+  int top = (pageHeight - blockH) / 2 - (pageHeight / 12);
+  if (top < 4) top = (pageHeight - blockH) / 2;
+  if (top < 4) top = 4;
+  const int yHour = top;
+  const int yRule = yHour + glyphH + gapPx * 2;  // below hour, not hugging it
+  const int yMin = yRule + scale + gapPx;
+
+  // Date line, just below the clock.
+  static const StrId weekdayIds[7] = {
+      StrId::STR_WEEKDAY_SUNDAY,   StrId::STR_WEEKDAY_MONDAY, StrId::STR_WEEKDAY_TUESDAY, StrId::STR_WEEKDAY_WEDNESDAY,
+      StrId::STR_WEEKDAY_THURSDAY, StrId::STR_WEEKDAY_FRIDAY, StrId::STR_WEEKDAY_SATURDAY};
+  const char* weekdayName = lt.weekday >= 0 && lt.weekday < 7 ? I18N.get(weekdayIds[lt.weekday]) : "";
+  char dateBuf[64];
+  snprintf(dateBuf, sizeof(dateBuf), tr(STR_SLEEP_CLOCK_DATE), lt.year % 10000, lt.month, lt.day, weekdayName);
+  const int dateY = yMin + glyphH + 46;  // below the two-line clock
+  const int dateTop = dateY - 16;
+  const int dateBottom = dateY + 4;
+
+  if (quietRepaint) {
+    // Partial repaint on timer wakes: erase only the regions that can have
+    // changed (the clock digits, the rule and the date line), then redraw
+    // them. The untouched background stays on the panel, so the FAST_REFRESH
+    // transition is confined to those boxes — no full-screen flash.
+    renderer.fillRect(xLine, yHour, lineW, glyphH, false);
+    renderer.fillRect(xLine, yMin, lineW, glyphH, false);
+    renderer.fillRect(0, yRule - scale / 2, pageWidth, scale, false);
+    renderer.fillRect(0, dateTop, pageWidth, dateBottom - dateTop, false);
+  }
+
+  for (int i = 0; hourBuf[i]; ++i) {
+    drawClockGlyph(renderer, xLine + i * kClockGlyphStep * scale, yHour, clockGlyphIdx(hourBuf[i]), scale, true);
+  }
+  for (int i = 0; minBuf[i]; ++i) {
+    drawClockGlyph(renderer, xLine + i * kClockGlyphStep * scale, yMin, clockGlyphIdx(minBuf[i]), scale, true);
+  }
+
+  // Separator rule between the hour and minute lines, as wide as the digits.
+  renderer.drawLine(xLine, yRule, xLine + lineW, yRule, true);
+
+  renderer.drawCenteredText(UI_10_FONT_ID, dateY, dateBuf);
+
+  // Periodic timer re-renders use the cheaper partial waveform; first entry
+  // keeps the clean full HALF_REFRESH.
+  renderer.displayBuffer(quietRepaint ? HalDisplay::FAST_REFRESH : HalDisplay::HALF_REFRESH);
 }

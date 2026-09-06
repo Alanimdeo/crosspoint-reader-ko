@@ -87,7 +87,8 @@ class ActivityManager {
   void goToRecentBooks();
   void goToBrowser();
   void goToReader(std::string path, bool allowFastInitialRefresh = false);
-  void goToSleep(bool fromTimeout = false);
+  void goToLuaApp(std::string path);
+  void goToSleep(bool fromTimeout = false, bool quietRepaint = false);
   void goToBoot();
   void goToFullScreenMessage(std::string message, EpdFontFamily::Style style = EpdFontFamily::REGULAR);
   void goToCrashReport();

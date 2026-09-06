@@ -38,6 +38,9 @@ class FileBrowserActivity final : public Activity {
   void loadFiles();
   size_t findEntry(const std::string& name) const;
 
+  // Route .lua files to the Lua runner, everything else to the reader.
+  void onSelectBook(const std::string& path) override;
+
  public:
   explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/",
                                Mode mode = Mode::Books)
