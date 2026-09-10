@@ -54,6 +54,12 @@ EpdFontFamily uiFontFamily(&pretendard10RegularFont);
 EpdFont kopub14RegularFont(&kopub_14_regular);
 EpdFontFamily kopub14FontFamily(&kopub14RegularFont);
 
+// Sleep-screen clock fonts (minimal glyph set: digits + Korean date syllables)
+EpdFont sleepClockFont(&sleep_clock_100);
+EpdFontFamily sleepClockFontFamily(&sleepClockFont);
+EpdFont sleepClockDateFont(&sleep_clock_20);
+EpdFontFamily sleepClockDateFontFamily(&sleepClockDateFont);
+
 // Korean fonts loading from SD card is disabled due to memory constraints
 // Font files should be in /.crosspoint/fonts/ directory
 constexpr char FONT_DIR[] = "/.crosspoint/fonts";
@@ -329,7 +335,11 @@ void enterDeepSleep(bool fromTimeout = false, bool quietRepaint = false) {
   // sleep screen has already been painted (goToSleep above), so the wait
   // below reflects the moment the display settled — the wake lands just after
   // the next minute:00 mark.
-  const bool clockSleep = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK;
+  // The periodic timer applies ONLY to user-initiated sleep (power button
+  // long press). A timeout sleep must stay off until the user wakes it — it
+  // must not boot itself every minute. The clock is still shown as a static
+  // sleep screen in both cases; only the timer wake is gated on fromTimeout.
+  const bool clockSleep = SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CLOCK && !fromTimeout;
 
   if (clockSleep) {
     uint16_t y = 0;
@@ -386,6 +396,10 @@ void setupDisplayAndFonts(bool seamless = false) {
 
   // Korean EPUB reader font (KoPub Batang 14pt) - always register as fallback
   renderer.insertFont(KOPUB_14_FONT_ID, &kopub14FontFamily);
+
+  // Sleep screen clock fonts
+  renderer.insertFont(SLEEP_CLOCK_FONT_ID, &sleepClockFontFamily);
+  renderer.insertFont(SLEEP_CLOCK_DATE_FONT_ID, &sleepClockDateFontFamily);
 
   // Try to load custom reader font from SD card
   loadCustomReaderFont(renderer);

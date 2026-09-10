@@ -10,3 +10,7 @@
 
 // Korean EPUB reader font (KoPub Batang 14pt) - Regular only, synthetic bold used when needed
 #include <builtinFonts/kopub_14_regular.h>
+
+// Sleep-screen clock fonts (minimal: digits + Korean date syllables)
+#include <builtinFonts/sleep_clock_100.h>
+#include <builtinFonts/sleep_clock_20.h>

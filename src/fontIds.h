@@ -14,6 +14,11 @@
 // Custom reader font loaded from SD card
 #define CUSTOM_FONT_ID (-999999)
 
+// Sleep-screen clock fonts (built-in, minimal glyph set: digits 0-9, ':',
+// space, and the Korean date syllables 년월일요화수목금토).
+#define SLEEP_CLOCK_FONT_ID (-777770)       // big hour/minute digits (~300px)
+#define SLEEP_CLOCK_DATE_FONT_ID (-777771)  // small date line (~35px)
+
 // User-selectable UI "system font" loaded from SD card.
 // When set, it becomes the primary UI font (the whole UI renders with it) and Pretendard
 // is kept as its glyph-level fallback for codepoints the SD font lacks. When unset, the UI
@@ -49,3 +54,5 @@ static_assert(NOTOSANS_16_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(NOTOSANS_18_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(UI_FONT_ID != 0, "Font ID collision with sentinel");
 static_assert(UI_FALLBACK_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(SLEEP_CLOCK_FONT_ID != 0, "Font ID collision with sentinel");
+static_assert(SLEEP_CLOCK_DATE_FONT_ID != 0, "Font ID collision with sentinel");

@@ -415,46 +415,6 @@ void SleepActivity::renderBlankSleepScreen() const {
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 
-namespace {
-// 5x7 dot-matrix digits for the clock sleep screen (same glyph set as
-// cp.gfx.digits). Rows top->bottom, 5-bit mask, bit 4 = leftmost.
-constexpr uint8_t kClockDigitGlyphs[] = {
-    0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E,  // 0
-    0x02, 0x06, 0x0A, 0x02, 0x02, 0x02, 0x02,  // 1
-    0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F,  // 2
-    0x0E, 0x11, 0x01, 0x06, 0x01, 0x11, 0x0E,  // 3
-    0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02,  // 4
-    0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E,  // 5
-    0x0E, 0x11, 0x10, 0x1E, 0x11, 0x11, 0x0E,  // 6
-    0x1F, 0x11, 0x02, 0x04, 0x04, 0x04, 0x04,  // 7
-    0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E,  // 8
-    0x0E, 0x11, 0x11, 0x0F, 0x01, 0x11, 0x0E,  // 9
-    0x00, 0x02, 0x02, 0x00, 0x02, 0x02, 0x00,  // :
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // (space)
-};
-constexpr int kClockGlyphW = 5;
-constexpr int kClockGlyphH = 7;
-constexpr int kClockGlyphStep = kClockGlyphW + 1;  // +1 cell gap
-
-// Render a single dot-matrix character (digit or ':') at (x, y) with the
-// given pixel scale, anchored at the glyph's top-left corner.
-void drawClockGlyph(GfxRenderer& r, int x, int y, int charIdx, int scale, bool ink) {
-  for (int row = 0; row < kClockGlyphH; ++row) {
-    const uint8_t bits = kClockDigitGlyphs[charIdx * kClockGlyphH + row];
-    for (int col = 0; col < kClockGlyphW; ++col) {
-      if (bits & (1 << (4 - col))) {
-        r.fillRect(x + col * scale, y + row * scale, scale, scale, ink);
-      }
-    }
-  }
-}
-
-int clockGlyphIdx(char c) {
-  if (c >= '0' && c <= '9') return c - '0';
-  if (c == ':') return 10;
-  return 11;  // space for anything else
-}
-
 // --- civil-date <-> unix-seconds conversion (no RTC/libc dependency) -------
 // Howard Hinnant's algorithm; correct for years 0000..9999.
 int64_t daysFromCivil(int y, int m, int d) {
@@ -516,11 +476,23 @@ LocalDateTime toLocal(const uint16_t year, const uint8_t month, const uint8_t da
   out.weekday = weekdayFromDays(d);
   return out;
 }
-}  // namespace
+
+// Vertical metrics of the two fixed built-in clock fonts, read from their
+// EpdGlyph tables once and hardcoded so the per-minute repaint does no font
+// lookups or map walks:
+//   sleep_clock_100 (digits): glyph ink spans 152px above the baseline and
+//     2px below it (height 154). ascender=199, advanceY=249.
+//   sleep_clock_20 (date):   glyph ink spans 34px above the baseline and
+//     3px below it (height 37). ascender=40, advanceY=50.
+// drawText() places the BASELINE at its y argument.
+static constexpr int CLOCK_INK_ABOVE = 152;  // digit ink above baseline
+static constexpr int CLOCK_INK_BELOW = 2;    // digit ink below baseline
+static constexpr int DATE_INK_ABOVE = 34;    // date ink above baseline
+static constexpr int DATE_INK_BELOW = 3;     // date ink below baseline
 
 void SleepActivity::renderClockSleepScreen() const {
-  const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
+  const int pageWidth = renderer.getScreenWidth();
+  const int pageHeight = renderer.getScreenHeight();
 
   if (!quietRepaint) {
     renderer.clearScreen();
@@ -542,75 +514,62 @@ void SleepActivity::renderClockSleepScreen() const {
   const int32_t offsetQ = static_cast<int32_t>(SETTINGS.clockUtcOffsetQ) - 48;
   const LocalDateTime lt = toLocal(year, month, day, hour, minute, second, offsetQ);
 
-  // Two big lines: HH on top, MM below, separated by a rule. The scale is
-  // chosen so the whole block (two digit lines + rule) fits vertically with
-  // room for the date below; width then follows from that scale.
   char hourBuf[3], minBuf[3];
   snprintf(hourBuf, sizeof(hourBuf), "%02d", lt.hour);
   snprintf(minBuf, sizeof(minBuf), "%02d", lt.minute);
-  // 2 glyphs = 2*kClockGlyphStep - 1 cells (incl. one intra-pair gap).
-  const int lineCells = 2 * kClockGlyphStep - 1;
 
-  // Vertical first: two 7-row digit lines + 1-row rule + one cell of gap
-  // above/below the rule must not exceed ~60% of the screen height, leaving
-  // room for the date line underneath.
-  const int scaleByHeight = static_cast<int>(pageHeight * 0.60f) / (2 * kClockGlyphH + 3);
-  // Width is bounded by 80% so even huge panels don't overflow.
-  const int scaleByWidth = static_cast<int>(pageWidth * 0.8f) / lineCells;
-  int scale = std::min(scaleByHeight, scaleByWidth);
-  if (scale < 2) scale = 2;
-  const int lineW = lineCells * scale;
-  const int xLine = (pageWidth - lineW) / 2;
-  const int glyphH = kClockGlyphH * scale;
-
-  // Vertically center the two lines + separator rule as a block (slightly
-  // above center so the date has room below), but never off-screen. The rule
-  // sits a bit lower than the exact midpoint, away from the hour digits.
-  const int gapPx = scale;  // gap between a digit line and the rule
-  // blockH = hour digits + 2-cell gap + rule + 1-cell gap + minute digits.
-  const int blockH = glyphH + gapPx * 2 + scale + gapPx + glyphH;
-  int top = (pageHeight - blockH) / 2 - (pageHeight / 12);
-  if (top < 4) top = (pageHeight - blockH) / 2;
-  if (top < 4) top = 4;
-  const int yHour = top;
-  const int yRule = yHour + glyphH + gapPx * 2;  // below hour, not hugging it
-  const int yMin = yRule + scale + gapPx;
-
-  // Date line, just below the clock.
   static const StrId weekdayIds[7] = {
       StrId::STR_WEEKDAY_SUNDAY,   StrId::STR_WEEKDAY_MONDAY, StrId::STR_WEEKDAY_TUESDAY, StrId::STR_WEEKDAY_WEDNESDAY,
       StrId::STR_WEEKDAY_THURSDAY, StrId::STR_WEEKDAY_FRIDAY, StrId::STR_WEEKDAY_SATURDAY};
   const char* weekdayName = lt.weekday >= 0 && lt.weekday < 7 ? I18N.get(weekdayIds[lt.weekday]) : "";
   char dateBuf[64];
   snprintf(dateBuf, sizeof(dateBuf), tr(STR_SLEEP_CLOCK_DATE), lt.year % 10000, lt.month, lt.day, weekdayName);
-  const int dateY = yMin + glyphH + 46;  // below the two-line clock
-  const int dateTop = dateY - 16;
-  const int dateBottom = dateY + 4;
+
+  // Two-line clock: HH on top, a rule, MM below, then the date. drawText()
+  // puts the BASELINE at its y argument; digit ink spans [y-152, y+2] and the
+  // date ink [y-34, y+3]. All the y values below are baselines, and the gaps
+  // are measured ink-edge to ink-edge so the digit boxes and the rule align.
+  const int hhW = renderer.getTextWidth(SLEEP_CLOCK_FONT_ID, hourBuf);
+  const int mmW = renderer.getTextWidth(SLEEP_CLOCK_FONT_ID, minBuf);
+  const int dateW = renderer.getTextWidth(SLEEP_CLOCK_DATE_FONT_ID, dateBuf);
+  const int xHH = std::max(0, (pageWidth - hhW) / 2);
+  const int xMM = std::max(0, (pageWidth - mmW) / 2);
+  const int xDate = std::max(0, (pageWidth - dateW) / 2);
+
+  const int ruleGapAbove = 18;   // HH ink bottom -> rule
+  const int ruleGapBelow = 120;  // rule -> MM ink top
+  const int dateGap = 30;        // MM ink bottom -> date ink top
+
+  // Whole block, ink-edge to ink-edge, centered on the panel.
+  const int blockH = (CLOCK_INK_ABOVE + CLOCK_INK_BELOW) * 2 + ruleGapAbove + 4 + ruleGapBelow + dateGap +
+                     DATE_INK_ABOVE + DATE_INK_BELOW;
+  const int inkTop = std::max(0, (pageHeight - blockH) / 2);
+
+  const int bHH = inkTop + CLOCK_INK_ABOVE;                            // HH baseline
+  const int yRule = bHH + CLOCK_INK_BELOW + ruleGapAbove;              // just below HH ink
+  const int bMM = yRule + 4 + ruleGapBelow + CLOCK_INK_ABOVE;          // MM baseline
+  const int bDate = bMM + CLOCK_INK_BELOW + dateGap + DATE_INK_ABOVE;  // date baseline
+
+  const int ruleW = std::max(hhW, mmW);
+  const int xRule = (pageWidth - ruleW) / 2;
 
   if (quietRepaint) {
     // Partial repaint on timer wakes: erase only the regions that can have
-    // changed (the clock digits, the rule and the date line), then redraw
-    // them. The untouched background stays on the panel, so the FAST_REFRESH
-    // transition is confined to those boxes — no full-screen flash.
-    renderer.fillRect(xLine, yHour, lineW, glyphH, false);
-    renderer.fillRect(xLine, yMin, lineW, glyphH, false);
-    renderer.fillRect(0, yRule - scale / 2, pageWidth, scale, false);
-    renderer.fillRect(0, dateTop, pageWidth, dateBottom - dateTop, false);
+    // changed (the two digit lines, the rule, and the date line).
+    renderer.fillRect(xHH, bHH - CLOCK_INK_ABOVE, hhW, CLOCK_INK_ABOVE + CLOCK_INK_BELOW, false);
+    renderer.fillRect(xMM, bMM - CLOCK_INK_ABOVE, mmW, CLOCK_INK_ABOVE + CLOCK_INK_BELOW, false);
+    renderer.fillRect(xRule, yRule, ruleW, 4, false);
+    // Full-width so a date rollover at midnight (wider new string) can't leave
+    // stale pixels outside the freshly-drawn width.
+    renderer.fillRect(0, bDate - DATE_INK_ABOVE, pageWidth, DATE_INK_ABOVE + DATE_INK_BELOW, false);
   }
 
-  for (int i = 0; hourBuf[i]; ++i) {
-    drawClockGlyph(renderer, xLine + i * kClockGlyphStep * scale, yHour, clockGlyphIdx(hourBuf[i]), scale, true);
-  }
-  for (int i = 0; minBuf[i]; ++i) {
-    drawClockGlyph(renderer, xLine + i * kClockGlyphStep * scale, yMin, clockGlyphIdx(minBuf[i]), scale, true);
-  }
+  renderer.drawText(SLEEP_CLOCK_FONT_ID, xHH, bHH, hourBuf);
+  renderer.drawText(SLEEP_CLOCK_FONT_ID, xMM, bMM, minBuf);
 
-  // Separator rule between the hour and minute lines, as wide as the digits.
-  renderer.drawLine(xLine, yRule, xLine + lineW, yRule, true);
+  renderer.fillRect(xRule, yRule, ruleW, 4, true);
 
-  renderer.drawCenteredText(UI_10_FONT_ID, dateY, dateBuf);
+  renderer.drawText(SLEEP_CLOCK_DATE_FONT_ID, xDate, bDate, dateBuf);
 
-  // Periodic timer re-renders use the cheaper partial waveform; first entry
-  // keeps the clean full HALF_REFRESH.
   renderer.displayBuffer(quietRepaint ? HalDisplay::FAST_REFRESH : HalDisplay::HALF_REFRESH);
 }
