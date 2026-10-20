@@ -13,10 +13,12 @@ cd "$(dirname "$0")"
 
 PY="${PYTHON:-python3}"
 
-# KoPub Batang 14pt — the EPUB reader font. Carries the full Hangul syllable
-# block plus the 4,620 Hanja the typeface ships, so reading is unaffected by the
-# UI font's reduced coverage below.
-KOPUB_INTERVALS=(
+# Pretendard 14pt — the EPUB reader font. Pretendard first, KoPub Batang Light for
+# every code point Pretendard lacks (the 4,620 Hanja and some symbols), over the
+# ranges the KoPub built-in carried up to 1.6.5-ko.3: the reader keeps every glyph it
+# had. Reading entirely in KoPub is the release asset KoPubBatang-14.epdfont
+# (.github/workflows/release.yml).
+READER_INTERVALS=(
   --additional-intervals 0x1100,0x11FF  # Hangul Jamo
   --additional-intervals 0x3000,0x303F  # CJK symbols and punctuation
   --additional-intervals 0x3130,0x318F  # Hangul compatibility Jamo
@@ -24,10 +26,11 @@ KOPUB_INTERVALS=(
   --additional-intervals 0xAC00,0xD7A3  # Hangul syllables
 )
 
-echo "Generating kopub_14_regular.h ..."
-$PY fontconvert.py kopub_14_regular 14 \
+echo "Generating pretendard_14_regular.h ..."
+$PY fontconvert.py pretendard_14_regular 14 \
+  ../builtinFonts/source/Pretendard/Pretendard-Regular.ttf \
   "../builtinFonts/source/KoPub-Batang/KoPub Batang Light.ttf" \
-  --2bit "${KOPUB_INTERVALS[@]}" > ../builtinFonts/kopub_14_regular.h
+  --2bit "${READER_INTERVALS[@]}" > ../builtinFonts/pretendard_14_regular.h
 
 # Pretendard 10pt — the UI font. Restricted to the KS X 1001 Hangul set (2,350
 # syllables instead of 11,172), which is what keeps firmware.bin inside the
@@ -53,9 +56,10 @@ $PY - <<'PYEOF'
 import re
 
 NOTES = {
-    "../builtinFonts/kopub_14_regular.h":
+    "../builtinFonts/pretendard_14_regular.h":
         " * Command used: lib/EpdFont/scripts/convert-korean-builtin-fonts.sh\n"
-        " * Hangul coverage: full block; Hanja: the 4,620 the typeface ships.",
+        " * Pretendard first, KoPub Batang Light for what Pretendard lacks (Hanja): every code point\n"
+        " * the KoPub built-in carried up to 1.6.5-ko.3.",
     "../builtinFonts/pretendard_10_regular.h":
         " * Command used: lib/EpdFont/scripts/convert-korean-builtin-fonts.sh\n"
         " * Hangul coverage: KS X 1001 (2,350 syllables) via ks_x_1001_intervals.py,\n"

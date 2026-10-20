@@ -2,15 +2,16 @@
 
 #include <Txt.h>
 
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "CrossPointSettings.h"
-#include "EndOfBookOptions.h"
+#include "ReaderActivity.h"
 #include "TxtReaderMenuActivity.h"
-#include "activities/Activity.h"
 #include "util/ReadingTimer.h"
 
-class TxtReaderActivity final : public Activity {
+class TxtReaderActivity final : public ReaderActivity {
   std::unique_ptr<Txt> txt;
 
   // Offset-based navigation: no whole-file pagination. We track the byte
@@ -28,7 +29,11 @@ class TxtReaderActivity final : public Activity {
   size_t estBytesPerPage = 0;
 
   size_t fileSize = 0;
-  int pagesUntilFullRefresh = 0;
+
+  // End-of-book sentinel for the ReaderActivity end-of-book screen. Set when a
+  // forward turn is requested from the last page; currentOffset keeps pointing
+  // at that last page so returning from the end screen needs no re-layout.
+  bool atEndOfBook = false;
 
   std::vector<std::string> currentPageLines;
   // Parallel to currentPageLines: true if this line ended a source-file line
@@ -66,27 +71,17 @@ class TxtReaderActivity final : public Activity {
 
   // Reader-menu-driven options (ephemeral; not persisted to global settings)
   bool automaticPageTurnActive = false;
-  // True while the End-of-Book screen is showing. Set by pageTurn() when the
-  // reader reaches the last page and the user turns forward; cleared when the
-  // user pages back into the book or leaves the reader. Mirror of the EPUB/XTC
-  // readers' end-of-book state, expressed from the byte-offset model.
-  bool endOfBookMode = false;
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
   uint8_t currentPageTurnOption = 0;  // index into the menu's pageTurnLabels
   uint8_t currentPageJumpOption = 0;  // index into the menu's pageJumpLabels (0 = off)
   bool pendingScreenshot = false;
-  // Set when the user picks a percent jump from the menu; consumed in render().
-  bool pendingPercentJump = false;
-  int pendingJumpPercent = 0;
   // Suppress one frame of input after returning from a sub-activity so the
   // release event that closed the menu doesn't immediately retrigger here.
   bool skipNextButtonCheck = false;
 
   // Per-book reading-time accumulator. See util/ReadingTimer.h.
   ReadingTimer readingTimer;
-  // Next-book suggestion menu for the End-of-Book screen (shared with the EPUB/XTC readers).
-  EndOfBookOptions endOfBookOptions;
 
   void renderPage();
   void renderStatusBar() const;
@@ -104,42 +99,42 @@ class TxtReaderActivity final : public Activity {
   void saveProgress() const;
   void loadProgress();
 
+  bool loadBook() override;
+  std::string getBookTitle() const override { return txt ? txt->getTitle() : ""; }
+  void renderBook() override;
+
   int estimatedTotalPages() const;
   int estimatedCurrentPage() const;
 
   // Menu-driven actions
+  void openReaderMenu();
   void onReaderMenuConfirm(TxtReaderMenuActivity::MenuAction action);
   void applyOrientation(uint8_t orientation);
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
-  void pageTurn(bool isForwardTurn);
   // Multi-page navigation. Positive delta moves forward, negative backward.
   // Uses the running bytes-per-page estimate to skip without re-paginating.
-  void jumpPages(int deltaPages);
+  bool jumpPages(int deltaPages);
   // Translate a 0-100 percent into an absolute byte offset and reset state to
   // render that position on the next frame.
   void jumpToPercent(int percent);
 
  public:
-  explicit TxtReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::unique_ptr<Txt> txt,
-                             int initialRefreshCountdown)
-      : Activity("TxtReader", renderer, mappedInput),
-        txt(std::move(txt)),
-        pagesUntilFullRefresh(initialRefreshCountdown) {}
+  explicit TxtReaderActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string bookPath,
+                             bool allowFastInitialRefresh)
+      : ReaderActivity("TxtReader", renderer, mappedInput, std::move(bookPath), allowFastInitialRefresh) {}
+  ~TxtReaderActivity() override = default;
+
   void onEnter() override;
   void onExit() override;
   void loop() override;
-  void render(RenderLock&&) override;
-  bool isReaderActivity() const override { return true; }
   // Prevent auto-sleep while auto page-turn is running so long unattended
   // reads don't get cut off by the global inactivity timer.
   bool preventAutoSleep() override { return automaticPageTurnActive; }
-  bool handleForcedRefresh() override {
-    {
-      RenderLock lock(*this);
-      pagesUntilFullRefresh = 1;
-    }
-    requestUpdate();
-    return true;
-  }
+
+  bool pageTurn(bool isForward) override;
+  bool skipPages(int amount) override;
+  bool isAtEndOfBook() const override;
+  void onReturnFromEndOfBook() override;
+
   ScreenshotInfo getScreenshotInfo() const override;
 };

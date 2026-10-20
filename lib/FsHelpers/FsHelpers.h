@@ -15,6 +15,9 @@ std::string normalisePath(const std::string& path);
 // before str2. Same ordering sortFileList applies within the file/directory groups.
 bool naturalLess(const std::string& str1, const std::string& str2);
 
+// True when names compare equal before naturalLess applies its deterministic spelling tie-break.
+bool naturalEquivalent(const std::string& str1, const std::string& str2);
+
 void sortFileList(std::vector<std::string>& strs);
 
 /**
@@ -73,6 +76,15 @@ inline bool hasCssExtension(const String& fileName) {
   return hasCssExtension(std::string_view{fileName.c_str(), fileName.length()});
 }
 std::string extractFolderPath(const std::string& filePath);
+
+// Rejects an empty component, one containing '/' or '\', or the exact components
+// "." and "..", so a single filename/folder-name argument can never be used to
+// escape the directory it is placed into. Names like "volume..2.epub" or
+// "notes...txt" that merely contain ".." are accepted.
+bool isSafePathComponent(std::string_view name);
+inline bool isSafePathComponent(const String& name) {
+  return isSafePathComponent(std::string_view{name.c_str(), name.length()});
+}
 
 /**
  * Sanitize a filename/path component for FAT32 in a caller-provided buffer.

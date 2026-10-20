@@ -24,13 +24,19 @@ size limit above.
 
 ## What gets us under the limit
 
-Korean fonts dominate the image. KoPub Batang 14 (the reader font, 3.13 MB
-including its 4,620 Hanja) is the product and is kept in full. Pretendard 10 (the
-UI font) is the one that gets cut, because a UI font only needs the syllables that
-appear in menus, titles and filenames.
+Korean fonts dominate the image. Since 1.6.5-ko.4 the built-in reader font is
+Pretendard 14 with KoPub Batang as its glyph fallback: every code point the old
+KoPub built-in carried (full Hangul, the 4,620 Hanja, CJK symbols), 2.5 MB of
+bitmaps against KoPub's 2.9 MB, because Pretendard's Hangul is lighter. KoPub Batang 14
+was the whole reader font until 1.6.5-ko.3; that freed the room for the Bluetooth
+page turner (BLE controller and NimBLE, ~400 KB). All-KoPub reading is published
+with every release as `KoPubBatang-14.epdfont` for SD-card use. Pretendard
+10 (the UI font) stays cut to KS X 1001, because a UI font only needs the syllables
+that appear in menus, titles and filenames.
 
 | Cut | Where | Saving |
 |-----|-------|--------|
+| Reader font Hangul from Pretendard 14 instead of KoPub (Hanja still KoPub) | `convert-korean-builtin-fonts.sh` | **~330 KB** |
 | Pretendard UI font restricted to KS X 1001 Hangul | `convert-korean-builtin-fonts.sh` | **828 KB** |
 | Drop Latin/Cyrillic hyphenation tries | `-DCP_HYPHENATION_LANGS=0` | ~310 KB |
 | Ship only Korean + English UI | only `english.yaml` + `korean.yaml` | ~184 KB |
@@ -49,8 +55,8 @@ KS X 1001 covers modern Korean orthography. What drops out is archaic and
 onomatopoeic combinations (`뷁`, `똠`), which effectively never appear in UI
 labels but *can* appear in book titles and filenames. Those glyphs do not render
 unless the user selects an SD-card system font -- there is no built-in fallback
-for them, which is a deliberate trade (see the release notes for 1.5.0-ko.1). A
-full-coverage Pretendard `.epdfont` is published with each release for users who
+for them, which is a deliberate trade (see the release notes for 1.5.0-ko.1). Full-coverage
+Pretendard 10 `.epdfont` files were attached to the 1.5.0-ko.1 and 1.5.0-ko.2 releases for users who
 want them back:
 
 | File | Size |
@@ -71,6 +77,10 @@ for upstream parity; individual languages toggle with
 | 1.3.0-ko.1 | 6,461,088 | 92,512 under |
 | 1.5.0-ko.0 (upstream 1.5.0 merged) | 6,869,392 | **315,792 over** |
 | 1.5.0-ko.1 (Pretendard cut to KS X 1001) | 6,041,152 | 512,448 under |
+| 1.6.5-ko.3 | 6,183,456 | 370,144 under |
+| 1.6.5-ko.3 + Bluetooth page turner, KoPub built in | 6,573,152 | **19,552 over** |
+| Pretendard 14 without Hanja (not shipped) | 5,367,312 | 1,186,288 under |
+| 1.6.5-ko.4 (Pretendard 14 + KoPub Hanja, Bluetooth) | 6,255,248 | 298,352 under |
 
 1.5.0-ko.0 shipped over the limit. That does not just force the two-step install
 for new users: **it breaks OTA for existing ones.** OTA and the SD-card update
@@ -80,9 +90,9 @@ an oversized image with `TOO_LARGE` (see `FirmwareFlasher.cpp`). Only a full
 flash changes the table, and some units have USB disabled, leaving them with no
 route at all. Hence 1.5.0-ko.1.
 
-Headroom is now ~512 KB. Before adding flash-resident data, rebuild `gh_release`
+Headroom is now ~291 KB on X3/X4; the tightest board is PaperMono (6,355,760 B, ~193 KB under). Before adding flash-resident data, rebuild `gh_release`
 and check `firmware.bin` against 6,553,600 bytes. Remaining levers, largest
-first: reducing Hanja coverage in `kopub_14_regular` (~840 KB), dropping
-Pretendard entirely and falling the UI back to KoPub (~282 KB now), excluding
+first: dropping the Pretendard 10 UI font and drawing the UI with Pretendard 14
+(~282 KB), excluding
 X3-only code (tilt/gyro/NTP, currently always linked), and trimming the wolfSSL
 cipher set (~195 KB total, most of it needed for HTTPS).

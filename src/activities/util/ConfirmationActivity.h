@@ -4,13 +4,11 @@
 
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
-#include "fontIds.h"
 
 class ConfirmationActivity : public Activity {
  private:
-  // Popup title and body, built from the heading/body arguments in the
-  // constructor (truncated to fit the popup).
-  std::string popupTitle;
+  // Input data
+  std::string heading;
   std::string body;
 
   OptionPopup confirmPopup;
