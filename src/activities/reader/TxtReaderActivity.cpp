@@ -1175,9 +1175,10 @@ void TxtReaderActivity::loadProgress() {
     return;
   }
   if (savedOffset < fileSize) {
-    // Snap to a line boundary so the new layout doesn't render a partial
-    // wrap segment at the top of the page.
-    currentOffset = snapToLineStart(static_cast<size_t>(savedOffset));
+    // Exact restore: a mid-line offset is the wrap continuation point of a
+    // source line split across a page boundary, not an error; renderBook()
+    // detects it via isOffsetAtLineStart().
+    currentOffset = static_cast<size_t>(savedOffset);
     LOG_DBG("TRS", "Loaded progress: offset %zu / %zu (%.0f%%)", currentOffset, fileSize,
             fileSize ? currentOffset * 100.0f / fileSize : 0.0f);
   }
