@@ -610,44 +610,45 @@ init:                   /* using goto to optimize tail recursion */
       break;
     }
     default:
-    dflt: {                             /* pattern class plus optional suffix */
-      const char *ep = classend(ms, p); /* points to optional suffix */
-      /* does not match at least once? */
-      if (!singlematch(ms, s, p, ep)) {
-        if (*ep == '*' || *ep == '?' || *ep == '-') { /* accept empty? */
-          p = ep + 1;
-          goto init;   /* return match(ms, s, ep + 1); */
-        } else         /* '+' or no suffix */
-          s = NULL;    /* fail */
-      } else {         /* matched once */
-        switch (*ep) { /* handle optional suffix */
-        case '?': {    /* optional */
-          const char *res;
-          if ((res = match(ms, s + 1, ep + 1)) != NULL)
-            s = res;
-          else {
+    dflt:
+      { /* pattern class plus optional suffix */
+        const char *ep = classend(ms, p); /* points to optional suffix */
+        /* does not match at least once? */
+        if (!singlematch(ms, s, p, ep)) {
+          if (*ep == '*' || *ep == '?' || *ep == '-') { /* accept empty? */
             p = ep + 1;
-            goto init; /* else return match(ms, s, ep + 1); */
+            goto init;   /* return match(ms, s, ep + 1); */
+          } else         /* '+' or no suffix */
+            s = NULL;    /* fail */
+        } else {         /* matched once */
+          switch (*ep) { /* handle optional suffix */
+          case '?': {    /* optional */
+            const char *res;
+            if ((res = match(ms, s + 1, ep + 1)) != NULL)
+              s = res;
+            else {
+              p = ep + 1;
+              goto init; /* else return match(ms, s, ep + 1); */
+            }
+            break;
           }
-          break;
+          case '+': /* 1 or more repetitions */
+            s++;    /* 1 match already done */
+            /* FALLTHROUGH */
+          case '*': /* 0 or more repetitions */
+            s = max_expand(ms, s, p, ep);
+            break;
+          case '-': /* 0 or more repetitions (minimum) */
+            s = min_expand(ms, s, p, ep);
+            break;
+          default: /* no suffix */
+            s++;
+            p = ep;
+            goto init; /* return match(ms, s + 1, ep); */
+          }
         }
-        case '+': /* 1 or more repetitions */
-          s++;    /* 1 match already done */
-          /* FALLTHROUGH */
-        case '*': /* 0 or more repetitions */
-          s = max_expand(ms, s, p, ep);
-          break;
-        case '-': /* 0 or more repetitions (minimum) */
-          s = min_expand(ms, s, p, ep);
-          break;
-        default: /* no suffix */
-          s++;
-          p = ep;
-          goto init; /* return match(ms, s + 1, ep); */
-        }
+        break;
       }
-      break;
-    }
     }
   }
   ms->matchdepth++;
@@ -1257,13 +1258,14 @@ static int str_format(lua_State *L) {
       case 'x':
       case 'X':
         flags = L_FMTFLAGSX;
-      intcase: {
-        lua_Integer n = luaL_checkinteger(L, arg);
-        checkformat(L, form, flags, 1);
-        addlenmod(form, LUA_INTEGER_FRMLEN);
-        nb = l_sprintf(buff, maxitem, form, (LUAI_UACINT)n);
-        break;
-      }
+      intcase:
+        {
+          lua_Integer n = luaL_checkinteger(L, arg);
+          checkformat(L, form, flags, 1);
+          addlenmod(form, LUA_INTEGER_FRMLEN);
+          nb = l_sprintf(buff, maxitem, form, (LUAI_UACINT)n);
+          break;
+        }
       case 'a':
       case 'A':
         checkformat(L, form, L_FMTFLAGSF, 1);
