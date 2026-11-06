@@ -812,45 +812,64 @@ size_t TxtReaderActivity::snapToLineStart(size_t offset) const {
 }
 
 size_t TxtReaderActivity::findBackwardPageStart(size_t endOffset) const {
-  // No history cache to fall back on — reconstruct the previous page by
-  // walking forward from a guessed earlier position until we reach endOffset.
-  // Estimate the guess window from bytes-per-page seen so far so long books
-  // don't need a full scan.
+  // The previous page starts at the earliest offset whose rendered page
+  // reaches endOffset: min{X : pageEnd(X) >= endOffset}. pageEnd() is monotone
+  // (a page started earlier never ends later), so binary search converges on
+  // the real chain boundary; every probe uses loadPageAtOffset — the same
+  // engine as forward rendering — instead of the old forward walk from an
+  // unaligned line-start guess, which drifted and left Back short of a full
+  // page. A mid-paragraph page top may resolve a few bytes early; the page
+  // still ends exactly at endOffset, so forward-paging returns precisely to
+  // where the reader stood.
   const size_t perPage = estBytesPerPage > 0 ? estBytesPerPage : 2048;
-  const size_t windowBytes = perPage * 2;
-  size_t scanStart = endOffset > windowBytes ? endOffset - windowBytes : 0;
-  scanStart = snapToLineStart(scanStart);
 
   std::vector<std::string> lines;
-  size_t cursor = scanStart;
-  size_t lastStart = scanStart;
+  int probes = 0;
+  // Largest UTF-8 codepoint start at or before pos, so probes never feed a
+  // partial character to the wrapper.
+  const auto codepointStart = [&](size_t pos) -> size_t {
+    const size_t back = std::min(static_cast<size_t>(3), pos);
+    if (back == 0) return 0;
+    uint8_t tail[3];
+    if (!txt->readContent(tail, pos - back, back)) return pos;
+    for (size_t k = back; k > 0; k--) {
+      if ((tail[k - 1] & 0xC0) != 0x80) return pos - back + k - 1;
+    }
+    return pos - back;
+  };
+  // Offset where the page starting at `from` ends. Probes the leading line's
+  // paragraph-start flag the same way renderBook() does, keeping spacing and
+  // indent identical to forward pages (issue #17).
+  const auto pageEnd = [&](size_t from) -> size_t {
+    from = codepointStart(from);
+    size_t next = from;
+    ++probes;
+    const_cast<TxtReaderActivity*>(this)->loadPageAtOffset(from, isOffsetAtLineStart(from), lines, nullptr, nullptr,
+                                                           next);
+    return next;
+  };
 
-  // Walk forward page-by-page. The last page-start at or before endOffset
-  // is our answer.
-  while (cursor < endOffset) {
-    size_t next = cursor;
-    // The leading source line is a paragraph start only when cursor actually
-    // sits at a line boundary. Only the first cursor (snapToLineStart above) is
-    // guaranteed to be one; every subsequent cursor is the previous synthetic
-    // page's end, which usually lands mid-paragraph. Forward rendering decides
-    // this via isOffsetAtLineStart() (see render()), so mirror it exactly here —
-    // otherwise the reconstructed pages get different paragraph spacing/indent,
-    // their height-based boundaries drift from the forward pages, and Back lands
-    // on a misaligned offset (issue #17 "text shifted to a different part").
-    const bool firstLineIsParagraphStart = isOffsetAtLineStart(cursor);
-    if (!const_cast<TxtReaderActivity*>(this)->loadPageAtOffset(cursor, firstLineIsParagraphStart, lines, nullptr,
-                                                                nullptr, next)) {
-      break;
-    }
-    if (next <= cursor) break;
-    if (next >= endOffset) {
-      lastStart = cursor;
-      break;
-    }
-    lastStart = cursor;
-    cursor = next;
+  // Lower bound strictly before the previous page; widen exponentially since
+  // page byte spans vary with indent/spacing.
+  size_t step = perPage * 2;
+  size_t lo = endOffset > step ? endOffset - step : 0;
+  while (lo > 0 && pageEnd(lo) >= endOffset) {
+    step *= 2;
+    lo = lo > step ? lo - step : 0;
   }
-  return lastStart;
+  // pageEnd(endOffset) >= endOffset holds trivially.
+  size_t hi = endOffset;
+  while (lo < hi) {
+    const size_t mid = lo + (hi - lo) / 2;
+    if (pageEnd(mid) >= endOffset) {
+      hi = mid;
+    } else {
+      lo = mid + 1;
+    }
+  }
+  const size_t start = codepointStart(lo);
+  LOG_DBG("TRS", "Backward page start for %zu: %zu (%d probes)", endOffset, start, probes);
+  return start;
 }
 
 int TxtReaderActivity::estimatedTotalPages() const {
