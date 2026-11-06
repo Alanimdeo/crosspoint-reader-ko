@@ -888,6 +888,19 @@ void loop() {
 
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
 
+#ifndef SIMULATOR  // the simulator's HAL has no fuel gauge
+  // Under the render lock, so a step never overlaps the themes' gauge reads.
+  static bool gaugeCapacityPending = true;
+  if (gaugeCapacityPending) {
+    char report[48] = "";
+    {
+      RenderLock lock(RenderLock::Mode::Try);
+      if (lock.ownsLock()) gaugeCapacityPending = powerManager.loadBatteryCapacity(report, sizeof(report));
+    }
+    if (report[0] != '\0') writeDebugLog(report);
+  }
+#endif
+
   renderer.setFadingFix(SETTINGS.fadingFix);
 
   // The ROM console does not depend on Arduino USB CDC's connection state.

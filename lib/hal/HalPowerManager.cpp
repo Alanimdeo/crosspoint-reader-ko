@@ -10,6 +10,7 @@
 #include <cassert>
 #include <cstdio>
 
+#include "Bq27220Capacity.h"
 #include "HalGPIO.h"
 
 #if FREEINK_DEVICE_PAPERMONO
@@ -41,6 +42,8 @@ uint16_t scaleAdcBatteryPercent(const uint16_t raw) {
   const uint32_t scaled = ((raw - BATTERY_SCALE_KNEE) * outSpan + inSpan / 2) / inSpan;
   return static_cast<uint16_t>(BATTERY_SCALE_KNEE + scaled);
 }
+
+constexpr uint16_t X3_BATTERY_CAPACITY_MAH = 650;
 
 }  // namespace
 // GPIO13 controls the X4 battery latch and the X3 SD power rail on the C3
@@ -202,6 +205,11 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
     LOG_DBG("PWR", "Battery: raw=%u%% corrected=%u%% shown=%d%%", raw, corrected, lastLogged);
   }
   return _batteryCachedPercent / 10;
+}
+
+bool HalPowerManager::loadBatteryCapacity(char* report, const size_t reportSize) {
+  return gpio.deviceIsX3() &&
+         loadBq27220DesignCapacity(BoardConfig::ACTIVE.batteryGauge, X3_BATTERY_CAPACITY_MAH, report, reportSize);
 }
 
 HalPowerManager::Lock::Lock() {
