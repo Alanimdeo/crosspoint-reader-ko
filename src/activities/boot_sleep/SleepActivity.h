@@ -26,6 +26,7 @@ class SleepActivity final : public Activity {
  private:
   void renderDefaultSleepScreen() const;
   void renderCustomSleepScreen() const;
+  bool renderCustomSleepBmp(const std::string& path) const;
   void renderCoverSleepScreen() const;
   void renderBitmapSleepScreen(const Bitmap& bitmap, bool preserveBackground = false) const;
   bool renderSleepOverlayFile(HalFile& file, const char* pathForLog) const;
@@ -42,4 +43,7 @@ class SleepActivity final : public Activity {
   // Timer-wake clock re-render: skip the "Entering sleep" popup and any
   // full-screen flash so the periodic re-paint is a single cheap refresh.
   bool quietRepaint = false;
+  // Cover + Transparent: the cover under the overlay, and the same cover while its gray planes are redrawn.
+  mutable const Bitmap* overlayCover = nullptr;
+  mutable const Bitmap* overlayGrayCover = nullptr;
 };

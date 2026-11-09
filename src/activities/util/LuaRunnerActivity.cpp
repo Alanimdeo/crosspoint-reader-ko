@@ -22,15 +22,15 @@ extern "C" {
 namespace {
 // Resolve the cp.gfx `font` option string to a firmware font id.
 // font ids come from fontIds.h; the font objects are registered at boot in
-// src/main.cpp (Pretendard under UI_FONT_ID and READER_14_FONT_ID, upstream
+// src/main.cpp (Pretendard under UI_FONT_ID and READER_FONT_ID, upstream
 // Noto faces under the NOTOSANS/NSERIF ids).
 int resolveFontId(lua_State* L, int idx, int fallback) {
   if (lua_type(L, idx) != LUA_TSTRING) return fallback;
   const char* f = lua_tostring(L, idx);
   if (strcmp(f, "ui") == 0 || strcmp(f, "pretendard") == 0) return UI_FONT_ID;
-  // "kopub" stays as a legacy alias: the 14pt reader font slot it named is
+  // "kopub" stays as a legacy alias: the reader font slot it named is
   // Pretendard now (KoPub ships as a release SD font, reachable as "custom").
-  if (strcmp(f, "kopub") == 0 || strcmp(f, "reader") == 0) return READER_14_FONT_ID;
+  if (strcmp(f, "kopub") == 0 || strcmp(f, "reader") == 0) return READER_FONT_ID;
   if (strcmp(f, "custom") == 0) return CUSTOM_FONT_ID;
   if (strcmp(f, "system") == 0) return SYSTEM_FONT_ID;
   if (strcmp(f, "sans12") == 0) return NOTOSANS_12_FONT_ID;

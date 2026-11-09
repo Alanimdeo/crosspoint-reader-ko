@@ -53,6 +53,10 @@ class FileBrowserActivity final : public UiListActivity {
   void buildScreen(UiScreen& screen) override;
   void activateIndex(int index) override;
   void onRowLongPress(int index) override;
+#if FREEINK_CAP_TOUCH
+  bool canSwipeDelete(int index) const override { return mode == Mode::Books && index >= 0 && index < listCount(); }
+  void swipeDelete(int index) override;
+#endif
   // Long-press BACK goes to root; short Back goes up a directory (home/cancel at
   // root), and Confirm activates on release while a hold opens file actions.
   bool handleCustomInput() override;
@@ -66,9 +70,6 @@ class FileBrowserActivity final : public UiListActivity {
   // Data loading
   void loadFiles();
   size_t findEntry(const std::string& name) const;
-
-  // Route .lua files to the Lua runner, everything else to the reader.
-  void onSelectBook(const std::string& path);
 
  public:
   explicit FileBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, std::string initialPath = "/",

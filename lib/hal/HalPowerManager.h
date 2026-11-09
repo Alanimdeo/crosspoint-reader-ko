@@ -40,17 +40,24 @@ class HalPowerManager {
 
   // Setup wake up GPIO and enter deep sleep
   // Should be called inside main loop() to handle the currentLockMode
+  // wakeOnHeldButton: arm the wake without waiting for the power button's
+  // release, so a press that is still down wakes the device straight back up
+  // through the normal power-button wake path.
   // timerWakeMs: when > 0, also arm an RTC/timer wakeup that long after sleep.
   // The timer wakeup is additive to the power-button wake, so a user can always
   // interrupt the periodic re-render with a normal wake.
-  void startDeepSleep(HalGPIO& gpio, uint64_t timerWakeMs = 0) const;
+  void startDeepSleep(HalGPIO& gpio, bool wakeOnHeldButton = false, uint64_t timerWakeMs = 0) const;
+
+#if FREEINK_DEVICE_PICCO
+  // While USB powers the device, light-sleep instead of deep sleep (deep sleep
+  // cannot observe the charger), calling onStatus whenever the charging state
+  // or percentage changes. Returns true when the power button ended the hold,
+  // false when USB went away or was never present.
+  bool holdWhileUsbPowered(HalGPIO& gpio, void (*onStatus)(bool charging, uint16_t percent)) const;
+#endif
 
   // Get battery percentage (range 0-100)
   uint16_t getBatteryPercentage() const;
-
-  // Loads the X3 cell's capacity into its fuel gauge. One short step per call: call from the main loop until it returns
-  // false.
-  bool loadBatteryCapacity();
 
   // RAII helper class to manage power saving locks
   // Usage: create an instance of Lock in a scope to disable power saving, for example when running a task that needs
