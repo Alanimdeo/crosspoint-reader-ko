@@ -49,8 +49,8 @@ class HalPowerManager {
   uint16_t getBatteryPercentage() const;
 
   // Loads the X3 cell's capacity into its fuel gauge. One short step per call: call from the main loop until it returns
-  // false. A load leaves a /debug.log line in `report` (see loadBq27220DesignCapacity()).
-  bool loadBatteryCapacity(char* report, size_t reportSize);
+  // false.
+  bool loadBatteryCapacity();
 
   // RAII helper class to manage power saving locks
   // Usage: create an instance of Lock in a scope to disable power saving, for example when running a task that needs

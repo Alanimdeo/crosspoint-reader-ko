@@ -207,9 +207,8 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
   return _batteryCachedPercent / 10;
 }
 
-bool HalPowerManager::loadBatteryCapacity(char* report, const size_t reportSize) {
-  return gpio.deviceIsX3() &&
-         loadBq27220DesignCapacity(BoardConfig::ACTIVE.batteryGauge, X3_BATTERY_CAPACITY_MAH, report, reportSize);
+bool HalPowerManager::loadBatteryCapacity() {
+  return gpio.deviceIsX3() && loadBq27220DesignCapacity(BoardConfig::ACTIVE.batteryGauge, X3_BATTERY_CAPACITY_MAH);
 }
 
 HalPowerManager::Lock::Lock() {

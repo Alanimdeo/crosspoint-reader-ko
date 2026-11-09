@@ -44,7 +44,6 @@
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 #include "util/Timezones.h"
-#include "util/WriteDebugLog.h"
 
 GfxRenderer renderer(display);
 MappedInputManager mappedInputManager(gpio, renderer);
@@ -492,23 +491,16 @@ void enterDeepSleep(bool fromTimeout = false, bool quietRepaint = false) {
       if (waitMs < 1000) waitMs = 60000U;  // safety: don't arm a sub-second wake
     }
 
-    // X3 path: compose the deep-sleep sequence manually so we can (a) arm the
-    // timer wakeup AFTER the power-button GPIO wake (additive sources, but arm
-    // the timer last regardless) and (b) record the timer-arm error to
-    // /debug.log — this device has no serial console.
-    char dbgLine[64];
-    snprintf(dbgLine, sizeof(dbgLine), "sleep timerWakeMs=%lu", static_cast<unsigned long>(waitMs));
-    writeDebugLog(dbgLine);
+    // X3 path: compose the deep-sleep sequence manually so the timer wakeup is
+    // armed AFTER the power-button GPIO wake (additive sources, but arm the
+    // timer last regardless).
     freeink::PowerManager::waitForPowerButtonRelease();
     freeink::PowerManager::armPowerButtonWakeup();
     const esp_err_t timerErr = esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(waitMs) * 1000ULL);
     LOG_DBG("MAIN", "Timer wake armed in %lu ms: esp_err=%d", static_cast<unsigned long>(waitMs),
             static_cast<int>(timerErr));
-    snprintf(dbgLine, sizeof(dbgLine), "timer arm err=%d", static_cast<int>(timerErr));
-    writeDebugLog(dbgLine);
     freeink::PowerManager::deepSleep();
   } else {
-    writeDebugLog("sleep timerWakeMs=0");
     powerManager.startDeepSleep(gpio);
   }
 }
@@ -685,12 +677,6 @@ void setup() {
   const auto resetReason = esp_reset_reason();
   LOG_DBG("MAIN", "Wake: reason=%d cause=%d reset=%d", static_cast<int>(wakeupReason), static_cast<int>(wakeupCause),
           static_cast<int>(resetReason));
-  {
-    char wl[64];
-    snprintf(wl, sizeof(wl), "wake reason=%d cause=%d reset=%d", static_cast<int>(wakeupReason),
-             static_cast<int>(wakeupCause), static_cast<int>(resetReason));
-    writeDebugLog(wl);
-  }
   // Timer wake from the periodic clock sleep screen: re-render the clock and
   // go straight back to deep sleep (no Home/reader, no splash). Some chips
   // report the cause as ESP_SLEEP_WAKEUP_ALL when both button and timer are
@@ -892,12 +878,8 @@ void loop() {
   // Under the render lock, so a step never overlaps the themes' gauge reads.
   static bool gaugeCapacityPending = true;
   if (gaugeCapacityPending) {
-    char report[48] = "";
-    {
-      RenderLock lock(RenderLock::Mode::Try);
-      if (lock.ownsLock()) gaugeCapacityPending = powerManager.loadBatteryCapacity(report, sizeof(report));
-    }
-    if (report[0] != '\0') writeDebugLog(report);
+    RenderLock lock(RenderLock::Mode::Try);
+    if (lock.ownsLock()) gaugeCapacityPending = powerManager.loadBatteryCapacity();
   }
 #endif
 

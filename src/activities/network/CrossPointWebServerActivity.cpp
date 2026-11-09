@@ -16,7 +16,6 @@
 #include "activities/network/CalibreConnectActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "network/NetworkSessionLog.h"
 #include "util/QrUtils.h"
 #include "util/TaskWatchdog.h"
 
@@ -66,8 +65,6 @@ void CrossPointWebServerActivity::onEnter() {
   Activity::onEnter();
 
   LOG_DBG("WEBACT", "Free heap at onEnter: %d bytes", ESP.getFreeHeap());
-  netlog::open();
-  netlog::line("enter");
 
   // Heap-critical transition: WiFi (~45KB) plus the web server have to fit in
   // what's left of the ~380KB parts. SD-font caches retained for the CJK UI
@@ -104,8 +101,6 @@ void CrossPointWebServerActivity::onExit() {
   Activity::onExit();
 
   LOG_DBG("WEBACT", "Free heap at onExit start: %d bytes", ESP.getFreeHeap());
-  netlog::line("exit");
-  netlog::close();
 
   state = WebServerActivityState::SHUTTING_DOWN;
   stopDnsServer();
@@ -147,7 +142,6 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
 
   networkMode = mode;
   isApMode = (mode == NetworkMode::CREATE_HOTSPOT);
-  netlog::line(isApMode ? "mode_ap" : "mode_sta");
 
   if (mode == NetworkMode::CONNECT_CALIBRE) {
     startActivityForResult(
@@ -192,12 +186,10 @@ void CrossPointWebServerActivity::onNetworkModeSelected(const NetworkMode mode) 
 
 void CrossPointWebServerActivity::onWifiSelectionComplete(const bool connected) {
   LOG_DBG("WEBACT", "WifiSelectionActivity completed, connected=%d", connected);
-  netlog::line(connected ? "sta_up" : "sta_cancel");
 
   if (connected) {
     // Get connection info before exiting subactivity
     isApMode = false;
-    netlog::tap(false);
 
     // Start mDNS for hostname resolution
     restartMdns(AP_HOSTNAME, "WEBACT");
@@ -238,14 +230,11 @@ void CrossPointWebServerActivity::startAccessPoint() {
 
   if (!apStarted) {
     LOG_ERR("WEBACT", "ERROR: Failed to start Access Point!");
-    netlog::line("ap_failed");
     onGoHome();
     return;
   }
 
   delay(100);  // Wait for AP to fully initialize
-  netlog::line("ap_up");
-  netlog::tap(true);
 
   // Get AP IP address
   const IPAddress apIP = WiFi.softAPIP();
@@ -293,7 +282,6 @@ void CrossPointWebServerActivity::startWebServer() {
   if (webServer->isRunning()) {
     state = WebServerActivityState::SERVER_RUNNING;
     LOG_DBG("WEBACT", "Web server started successfully");
-    netlog::line("srv_up");
     lastWifiBars = isApMode ? 0 : barsForRssi(WiFi.RSSI(), 0);
 
     // Force an immediate render since we're transitioning from a subactivity
@@ -301,7 +289,6 @@ void CrossPointWebServerActivity::startWebServer() {
     requestUpdate();
   } else {
     LOG_ERR("WEBACT", "ERROR: Failed to start web server!");
-    netlog::line("srv_failed");
     webServer.reset();
     // Go back on error
     onGoHome();
@@ -311,8 +298,6 @@ void CrossPointWebServerActivity::startWebServer() {
 void CrossPointWebServerActivity::loop() {
   // Handle different states
   if (state == WebServerActivityState::SERVER_RUNNING) {
-    netlog::tick();
-
     // Handle DNS requests for captive portal (AP mode only)
     if (isApMode && dnsServer) {
       dnsServer->processNextRequest();

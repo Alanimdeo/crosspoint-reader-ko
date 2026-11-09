@@ -4,8 +4,6 @@
 #include <Logging.h>
 #include <Wire.h>
 
-#include <cstdio>
-
 namespace {
 
 // TRM SLUUBD4A 6.1: unseal, full access, CONFIG UPDATE, checksummed Data Memory
@@ -136,8 +134,7 @@ bool bq27220LoadStep(const uint8_t addr, const uint16_t mah, const unsigned long
 
 }  // namespace
 
-bool loadBq27220DesignCapacity(const BoardConfig::BatteryGaugeConfig& gauge, const uint16_t mah, char* report,
-                               const size_t reportSize) {
+bool loadBq27220DesignCapacity(const BoardConfig::BatteryGaugeConfig& gauge, const uint16_t mah) {
   Bq27220Load& s = bq27220Load;
   // BatteryMonitor starts Wire on its first read, which may still be ahead of this one.
   if (s.step == 0) Wire.begin(gauge.i2cSda, gauge.i2cScl, gauge.i2cHz);
@@ -156,7 +153,6 @@ bool loadBq27220DesignCapacity(const BoardConfig::BatteryGaugeConfig& gauge, con
   readReg16(gauge.gaugeAddr, BQ27220_DESIGN_CAPACITY, designCapacity);
   readReg16(gauge.gaugeAddr, BQ27220_FULL_CHARGE_CAPACITY, fullChargeCapacity);
   readReg16(gauge.gaugeAddr, BQ27220_OPERATION_STATUS, status);
-  snprintf(report, reportSize, "gauge design=%u fcc=%u status=0x%04X", designCapacity, fullChargeCapacity, status);
-  LOG_INF("PWR", "%s", report);
+  LOG_INF("PWR", "gauge design=%u fcc=%u status=0x%04X", designCapacity, fullChargeCapacity, status);
   return false;
 }
